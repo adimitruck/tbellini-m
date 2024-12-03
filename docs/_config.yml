@@ -23,6 +23,8 @@ email: your-email@example.com
 description: >- # this means to ignore newlines until "baseurl:"
   TBellievin. TBellaughin. TBellivin.
 domain: tbellini.com
+# need to comment out baseurl for remote_theme to work when site deployed to gh-pages
+# https://stackoverflow.com/a/64778847
 # baseurl: "/tbellini-m/" # the subpath of your site, e.g. /blog
 url: "adimitruck@github.io" # the base hostname & protocol for your site, e.g. http://example.com
 twitter_username: tbellini.m
