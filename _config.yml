@@ -22,7 +22,7 @@ title: Tbellini.M
 email: your-email@example.com
 description: >- # this means to ignore newlines until "baseurl:"
   Tbellivin Tbellaughin. Tbellovin. 
-baseurl: "" # the subpath of your site, e.g. /blog
+baseurl: "/tbellini-m" # the subpath of your site, e.g. /blog
 url: "http://tbellini.com" # the base hostname & protocol for your site, e.g. http://example.com
 twitter_username: jekyllrb
 github_username:  jekyll
