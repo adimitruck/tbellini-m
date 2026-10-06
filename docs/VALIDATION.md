@@ -1,0 +1,47 @@
+# Validation record — October 6, 2026
+
+This records checks executed during skeleton construction and the community correction. It is not a claim of complete line/function coverage or production readiness. Later audit results should replace the current-status table below, preserving meaningful migration/browser evidence.
+
+## Latest completed verification
+
+| Check | Recorded result | What it establishes |
+| --- | --- | --- |
+| `npm run lint` | Zero warnings/errors | Static lint constraints for the checked source |
+| `npm run typecheck` | Passed | TypeScript compile-time contracts |
+| `npm test` | 41 Vitest domain/demo/time/runtime/adapter/storage tests + 18 node projection/replay/worker tests passed | Selected observable behavior and graph query construction |
+| `npm run build` | Optimized Next.js 16.3.8 build passed | Build output can be generated; credentials/providers are not probed |
+| Supabase clean migration replay + `test db` | 40 assertions passed on CLI 2.119.0 / Postgres 17 | Local schema and selected authenticated/anonymous policies |
+| Forward community migration | Existing synthetic records preserved/backfilled | Applied migration 3 over original migrations 1/2 with prior data |
+| Demo browser smoke | Passed the specific flows below | Manual browser behavior with local demo storage |
+
+The deeper audit is still adding targeted regressions and repeating live local checks; the table reflects its last confirmed 41 + 18 unit run until final repeat results are supplied. No hosted Vercel/Supabase/Neo4j/Cloudflare deployment, remote account provisioning, commit or PR is claimed.
+
+## Tests and coverage boundaries
+
+`tests/archive.test.ts` covers validation, persistence, missing IDs, attendance references/deduplication/cascades, actual-instant sorting, malformed demo records and timezone/DST conversion. `tests/community.test.ts` covers shared events, author restrictions in service/repositories, tagging independent of RSVP, own calendar filtering, private people isolation, own profile editing, deletion cascades and v1 demo conversion. These use an in-memory StoragePort and demo adapters. `tests/runtime.test.ts` exercises configuration readiness, latest-request asynchronous race handling and paginated fetch behavior. `tests/supabase.test.ts` drives the real Supabase SDK against fake HTTP transport to verify request scope, pagination, errors and row decoders; it does not contact a hosted project.
+
+`tests/storage-time.test.ts` covers corruption/reset, preserving legacy state, failed writes and temporal regressions including historical second offsets and unchanged-instant edits. These are selected cases rather than exhaustive timezone-history coverage.
+
+`scripts/sync-graph.test.mjs` uses a fake Neo4j driver to check parameterized keys/queries, idempotent writes, deletion, missing endpoints, community conversion, profiles, tags, RSVP status and private attendance visibility. `scripts/replay-outbox.test.mjs` adds fake-provider runner tests for exclusive lock handling, exact ordered acknowledgement, failure retention/retry and independent cleanup. These tests do not execute Cypher against Neo4j or test Aura connectivity; seven replay tests passed as part of the 18-test node suite.
+
+`supabase/tests/archive_rls.sql` and `community_rls.sql` run against actual local Postgres through pgTAP, switch roles/JWT claims, and cover owner privacy, cross-owner attendance FKs, timezone validation, service-table denial, graph mutex ownership, automatic membership, shared event reads, author-only mutations/tags, own RSVP and immutable identity. SQL tests do not exercise signup email delivery, a real browser session or the JavaScript provider adapter. `cloudflare/worker.test.mjs` adds local handler tests for read-only health/cache headers and rejected routes/methods; two handler tests passed as part of that node suite; they do not deploy a Worker.
+
+Hosted auth/session/RLS integration, automatic updates between browsers, full browser regression, full accessibility, realistic load/performance, backups/restore, deployed worker/DNS/TLS and GitHub-hosted Actions are not verified by the above checks. `/api/health` checks configuration readiness only (200 configured, 503 invalid/missing configuration), not provider availability.
+
+## Migration preservation evidence
+
+The forward `20261006000002_community.sql` migration was applied to the original two-migration schema with a synthetic existing account, event, private person and attendance link. It backfilled a registered profile and TBellini membership; preserved event content while changing its visibility to community; kept the person private; and retained the attendance. Three older pending graph records remained alongside four new conversion/snapshot records. A subsequent clean replay passed all 40 SQL assertions. The temporary local Supabase stack was stopped after that validation.
+
+The original owner-only SQL assumption was updated intentionally: after the forward migration, authenticated community members read all community events while private people/attendance and write boundaries remain scoped. Historical migration files were preserved.
+
+## Browser evidence
+
+Before the community correction, local demo smoke testing created an event, linked a person, corrected the title while retaining the link, created a private person and saw the event on its calendar date.
+
+After the correction, the previous demo's four events survived v1 → v2 migration. Sam tagged Alex on Sam's event. Alex saw the same four community events and tag marker, with no edit/delete/private-archive controls for Sam's event. Alex's My Calendar contained zero events before an RSVP and one October 6 event after choosing Interested. This was a simulated member switch in one browser dataset, not hosted authentication.
+
+Community members can see who is Going or Interested; writes are self-only. Event-author tags never imply RSVP. Private archive people/links remain owner scoped. Manual browser observations establish only the paths actually exercised.
+
+## Dependency audit
+
+The recorded production dependency audit found zero vulnerabilities. The full audit found five high development-tool transitive findings through `eslint-config-next` / `micromatch` / `braces`, requiring a compatible upstream fix. Development-tool findings remain unresolved; they were not ignored as safe simply because they are outside the production bundle. Re-run both `npm audit --omit=dev` and `npm audit` before release because advisories change. Dependency versions and the lockfile remain the authoritative inputs.
