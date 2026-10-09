@@ -14,6 +14,7 @@ export interface CommunityRepository {
   untag(eventId: string, userId: string): Promise<void>;
   respond(eventId: string, status: RsvpStatus | null): Promise<void>;
   updateProfile(displayName: string): Promise<UserProfile>;
+  generateInvitation(expiresInDays?: number): Promise<string>;
 }
 export const profileNameSchema = z.string().trim().min(1, 'Enter a display name.').max(200);
 export const profileSchema = z.object({ id: z.string(), displayName: profileNameSchema, createdAt: z.iso.datetime({ offset: true }), updatedAt: z.iso.datetime({ offset: true }) });

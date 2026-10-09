@@ -26,5 +26,21 @@ export function createCommunityRepository(client: SupabaseClient, currentUserId:
       if (result.error) throw new ArchiveError(result.error.message);
     },
     async updateProfile(displayName: string): Promise<UserProfile> { const { data, error } = await client.from('profiles').update({ display_name: profileNameSchema.parse(displayName) }).eq('id', currentUserId).select('*').single(); if (error) throw new ArchiveError(error.message); return decodeProfile(data); },
+    async generateInvitation(expiresInDays: number = 7): Promise<string> {
+      // Generate a secure random code format like ABCD-1234 or similar within 8-12 chars
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      let code = '';
+      for (let i = 0; i < 4; i++) code += chars[Math.floor(Math.random() * chars.length)];
+      code += '-';
+      for (let i = 0; i < 4; i++) code += chars[Math.floor(Math.random() * chars.length)];
+      
+      const expiresAt = new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000).toISOString();
+      const { error } = await client.from('invitations').insert({
+        code,
+        expires_at: expiresAt
+      });
+      if (error) throw new ArchiveError(error.message);
+      return code;
+    },
   };
 }

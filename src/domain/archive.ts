@@ -91,4 +91,5 @@ export class ArchiveService {
     await this.repositories.community.respond(eventId, rsvpStatusSchema.nullable().parse(status));
   }
   async saveProfile(displayName: string): Promise<UserProfile> { return this.repositories.community.updateProfile(profileNameSchema.parse(displayName)); }
+async generateInvitation(expiresInDays?: number): Promise<string> { return this.repositories.community.generateInvitation(expiresInDays); }
 }

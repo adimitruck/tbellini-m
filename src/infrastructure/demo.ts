@@ -59,6 +59,7 @@ export function createDemoRepositories(storage: StoragePort, userId: string = DE
         if (status) { const now = new Date().toISOString(); data.rsvps.push({ eventId, userId, communityId: TBELLINI_COMMUNITY_ID, status, createdAt: previous?.createdAt ?? now, updatedAt: now }); } store.write(data);
       },
       async updateProfile(displayName: string): Promise<UserProfile> { const data = store.read(); const profile = data.members.find((member): boolean => member.id === userId); if (!profile) throw new ArchiveError('Member not found.'); profile.displayName = profileNameSchema.parse(displayName); profile.updatedAt = new Date().toISOString(); store.write(data); return profile; },
+      async generateInvitation(): Promise<string> { return 'DEMO-INVITE'; },
     }, reset(): void { store.reset(); },
   };
 }

@@ -14,10 +14,39 @@ export function EventList({ snapshot, currentUserId, onSelect }: EventListProps)
     {!snapshot.events.length && <div className="empty-state"><h2>The next moment starts here.</h2><p>Create the first event for the TBellini community.</p></div>}
   </div><div className="archive-note"><span aria-hidden="true">✳</span><p>One community, many moments.<br /><span>Choose Going or Interested to build your own calendar.</span></p></div></>;
 }
-export interface MembersProps { snapshot: ArchiveSnapshot; currentUserId: string; onSaveProfile(displayName: string): Promise<void> }
-export function Members({ snapshot, currentUserId, onSaveProfile }: MembersProps): ReactElement {
+export interface MembersProps { snapshot: ArchiveSnapshot; currentUserId: string; onSaveProfile(displayName: string): Promise<void>; onGenerateInvitation(): Promise<string> }
+export function Members({ snapshot, currentUserId, onSaveProfile, onGenerateInvitation }: MembersProps): ReactElement {
   const current = snapshot.members.find((member): boolean => member.id === currentUserId);
   const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
+  const [newCode, setNewCode] = useState('');
+  const [inviteBusy, setInviteBusy] = useState(false);
   async function submit(e: FormEvent<HTMLFormElement>): Promise<void> { e.preventDefault(); setBusy(true); setError(''); const data = new FormData(e.currentTarget); try { await onSaveProfile(String(data.get('displayName') ?? '')); } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to save your profile.'); } finally { setBusy(false); } }
-  return <><form className="profile-form" onSubmit={submit}><label>Your display name<input key={currentUserId} name="displayName" defaultValue={current?.displayName} required maxLength={200} /></label><button className="primary" disabled={busy}>{busy ? 'Saving…' : 'Save your name'}</button>{error && <p className="error" role="alert">{error}</p>}</form><p className="muted">Every signed-up user is automatically a member of the TBellini community. User accounts are separate from your private archive people.</p><div className="people-grid">{snapshot.members.map((member): ReactElement => <article className="person-card" key={member.id}><div className="avatar">{member.displayName[0]}</div><h2>{member.displayName}{member.id === currentUserId ? ' (you)' : ''}</h2><p className="small muted">TBellini member</p><p className="small">{snapshot.events.filter((event): boolean => event.ownerId === member.id).length} events created</p></article>)}</div></>;
+  async function generateCode(): Promise<void> {
+    setInviteBusy(true);
+    setError('');
+    try {
+      const code = await onGenerateInvitation();
+      setNewCode(code);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Unable to generate invitation code.');
+    } finally {
+      setInviteBusy(false);
+    }
+  }
+  return <><form className="profile-form" onSubmit={submit}><label>Your display name<input key={currentUserId} name="displayName" defaultValue={current?.displayName} required maxLength={200} /></label><button className="primary" disabled={busy}>{busy ? 'Saving…' : 'Save your name'}</button>{error && <p className="error" role="alert">{error}</p>}</form>
+  <div style={{ margin: '2rem 0', padding: '1.5rem', background: 'var(--card-bg, #f9f9f9)', borderRadius: '8px', border: '1px solid var(--border-color, #e5e5e5)' }}>
+    <h2>Invite New Members</h2>
+    <p className="muted">Generate an invitation code to share with friends so they can join TBellini.</p>
+    <button className="primary" onClick={generateCode} disabled={inviteBusy} type="button">
+      {inviteBusy ? 'Generating…' : 'Generate Invite Code'}
+    </button>
+    {newCode && (
+      <div style={{ marginTop: '1rem' }}>
+        <p>Share this code or URL with your friend:</p>
+        <input type="text" readOnly value={newCode} style={{ padding: '0.5rem', fontSize: '1rem', width: '200px', marginRight: '0.5rem' }} />
+        <button onClick={(): void => { navigator.clipboard.writeText(newCode); alert('Copied to clipboard!'); }} type="button">Copy</button>
+      </div>
+    )}
+  </div>
+  <p className="muted">Every signed-up user is automatically a member of the TBellini community. User accounts are separate from your private archive people.</p><div className="people-grid">{snapshot.members.map((member): ReactElement => <article className="person-card" key={member.id}><div className="avatar">{member.displayName[0]}</div><h2>{member.displayName}{member.id === currentUserId ? ' (you)' : ''}</h2><p className="small muted">TBellini member</p><p className="small">{snapshot.events.filter((event): boolean => event.ownerId === member.id).length} events created</p></article>)}</div></>;
 }
