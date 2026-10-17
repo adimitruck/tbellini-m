@@ -1,5 +1,5 @@
 import { ArchiveError, eventSchema, personSchema, type ArchiveEvent, type ArchiveRecord, type ArchiveRepositories, type ArchiveSnapshot, type Attendance, type EventInput, type Person, type PersonInput, type Repository } from '@/domain/archive';
-import { profileNameSchema, rsvpStatusSchema, TBELLINI_COMMUNITY_ID, type CommunityMembership, type EventRsvp, type RsvpStatus, type UserProfile, type UserTag } from '@/domain/community';
+import { generateInviteCode, profileNameSchema, rsvpStatusSchema, TBELLINI_COMMUNITY_ID, type CommunityMembership, type EventRsvp, type RsvpStatus, type UserProfile, type UserTag } from '@/domain/community';
 import { DemoStore, DEMO_USERS, type StoragePort } from './demo-store';
 export { seedArchive, DEMO_USERS, DEMO_STORAGE_KEY, type StoragePort } from './demo-store';
 class DemoRepository<T extends ArchiveRecord, Input> implements Repository<T, Input> {
@@ -59,7 +59,7 @@ export function createDemoRepositories(storage: StoragePort, userId: string = DE
         if (status) { const now = new Date().toISOString(); data.rsvps.push({ eventId, userId, communityId: TBELLINI_COMMUNITY_ID, status, createdAt: previous?.createdAt ?? now, updatedAt: now }); } store.write(data);
       },
       async updateProfile(displayName: string): Promise<UserProfile> { const data = store.read(); const profile = data.members.find((member): boolean => member.id === userId); if (!profile) throw new ArchiveError('Member not found.'); profile.displayName = profileNameSchema.parse(displayName); profile.updatedAt = new Date().toISOString(); store.write(data); return profile; },
-      async generateInvitation(): Promise<string> { return 'DEMO-INVITE'; },
+      async generateInvitation(): Promise<string> { return generateInviteCode(); },
     }, reset(): void { store.reset(); },
   };
 }

@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { readAll } from './read-all';
 import { ArchiveError } from '@/domain/archive';
-import { membershipSchema, profileNameSchema, profileSchema, rsvpSchema, tagSchema, TBELLINI_COMMUNITY_ID, type CommunityMembership, type CommunityRepository, type EventRsvp, type RsvpStatus, type UserProfile, type UserTag } from '@/domain/community';
+import { inviteCodeSchema, membershipSchema, profileNameSchema, profileSchema, rsvpSchema, tagSchema, TBELLINI_COMMUNITY_ID, type CommunityMembership, type CommunityRepository, type EventRsvp, type RsvpStatus, type UserProfile, type UserTag } from '@/domain/community';
 const profileRow = z.object({ id: z.string(), display_name: z.string(), created_at: z.string(), updated_at: z.string() });
 const membershipRow = z.object({ community_id: z.string(), user_id: z.string(), created_at: z.string() });
 const tagRow = z.object({ event_id: z.string(), user_id: z.string(), community_id: z.string(), tagged_by: z.string(), created_at: z.string() });
@@ -26,21 +26,11 @@ export function createCommunityRepository(client: SupabaseClient, currentUserId:
       if (result.error) throw new ArchiveError(result.error.message);
     },
     async updateProfile(displayName: string): Promise<UserProfile> { const { data, error } = await client.from('profiles').update({ display_name: profileNameSchema.parse(displayName) }).eq('id', currentUserId).select('*').single(); if (error) throw new ArchiveError(error.message); return decodeProfile(data); },
-    async generateInvitation(expiresInDays: number = 7): Promise<string> {
-      // Generate a secure random code format like ABCD-1234 or similar within 8-12 chars
-      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-      let code = '';
-      for (let i = 0; i < 4; i++) code += chars[Math.floor(Math.random() * chars.length)];
-      code += '-';
-      for (let i = 0; i < 4; i++) code += chars[Math.floor(Math.random() * chars.length)];
-      
-      const expiresAt = new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000).toISOString();
-      const { error } = await client.from('invitations').insert({
-        code,
-        expires_at: expiresAt
-      });
+    async generateInvitation(expiresInDays: number): Promise<string> {
+      // Codes are generated and stored by the database so the browser never touches the invitations table.
+      const { data, error } = await client.rpc('create_invitation', { expires_in_days: expiresInDays });
       if (error) throw new ArchiveError(error.message);
-      return code;
+      return inviteCodeSchema.parse(data);
     },
   };
 }

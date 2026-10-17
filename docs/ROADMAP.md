@@ -16,7 +16,7 @@ Sequence: **Record basic people + Create events → Add people to events → See
 | RSVP / My Calendar | A member sets Going/Interested or clears their own RSVP; members see responses; My Calendar shows only their own RSVP events |
 | Community calendar | Browse shared events by their recorded local date |
 | Details/corrections | Open an event, edit its fields, inspect participants and delete deliberately |
-| Durable archive | Sign in and automatically join TBellini; authenticated members share events while private people/notes remain isolated |
+| Durable archive | Sign up with a single-use invite code, sign in and automatically join TBellini; authenticated members share events while private people/notes remain isolated |
 
 This repository supplies the initial implementation and infrastructure skeleton. Live Supabase/Neo4j/Cloudflare verification, domain/DNS provisioning and production enablement remain operator tasks. Local migrations/RLS tests and demo browser smoke tests have passed as recorded in VALIDATION.md. Automated browser regression, accessibility review, and authenticated hosted multi-user smoke tests remain before a production release.
 

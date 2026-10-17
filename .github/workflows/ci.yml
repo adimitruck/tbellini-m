@@ -2,7 +2,7 @@ name: Validate
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [site-code]
 permissions:
   contents: read
 jobs:

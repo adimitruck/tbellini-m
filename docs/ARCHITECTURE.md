@@ -18,7 +18,7 @@ The application separates domain entities/validation, generic repository contrac
 - `src/infrastructure/read-all.ts`: stable-order, authorization-scoped paginated reads beyond the default 1,000-row cap.
 - `src/domain/ports.ts`: `MediaStorage` and `GraphProjection` extension contracts only. They are not wired live services; the graph runner currently owns its SDK orchestration.
 
-The app uses browser-side email/password Supabase auth. Signup collects a display name; confirmation-required users confirm email then sign in. There is no implemented OAuth/PKCE callback, SSR archive reader, server session proxy, realtime subscription, polling, or graph-backed UI. Auth changes reload the snapshot; successful mutations reload it for the current session. Another browser's changes need a reload or local action to appear.
+The app uses browser-side email/password Supabase auth. Registration is invite-only: signup collects a display name and an invite code, and the database signup trigger atomically consumes an unused, unexpired code before creating the profile and membership. Members create codes through the `create_invitation` RPC. Confirmation-required users confirm email then sign in. There is no implemented OAuth/PKCE callback, SSR archive reader, server session proxy, realtime subscription, polling, or graph-backed UI. Auth changes reload the snapshot; successful mutations reload it for the current session. Another browser's changes need a reload or local action to appear.
 
 ## Data model
 
@@ -31,12 +31,13 @@ The app uses browser-side email/password Supabase auth. Signup collects a displa
 | `event_rsvps` | Community-visible Going/Interested state feeding My Calendar | Member reads; user alone sets/clears own state |
 | `people` | Basic display name and private notes | Independent owner record; not an app account |
 | `event_people` | Attendance association | Composite foreign keys require both endpoints to have the same owner |
+| `invitations` | Single-use signup codes with creator, expiry and consumer | RLS with no client grants; members create via `create_invitation()` RPC; signup trigger consumes |
 | `graph_outbox` | Transactional ordered projection changes/tombstones | Service-role access only |
 | `graph_sync_lock` | Exclusive replay mutex | Service-role RPC only |
 
 Events and people share UUID IDs, author/owner, timestamps and manual provenance. Event visibility is community: title, description/notes, dates, timezone and location are visible to every authenticated TBellini member. Archive people and their notes/links remain private. Identity and event author/community cannot be reassigned. The community migration backfills all existing accounts and makes existing events community visible; it preserves private people/notes and attendance. SQL enforces nonempty names, date order, owner association and RLS; boundary validation additionally validates IANA timezone and length limits. Store instants as `timestamptz`, preserving the original timezone for display. Future approximate dates require a new explicit model, not a fake timestamp.
 
-Authenticated clients use a publishable Supabase key and user session. RLS is enabled on every public table. Browser roles have no outbox or mutex access. The sync script alone uses a service-role secret; do not place it in client bundles or application component imports. Neo4j keys are `communityId:event:id` for shared events, `communityId:profile:id` for registered profiles, and `ownerId:person:id` for private people.
+Authenticated clients use a publishable Supabase key and user session. RLS is enabled on every public table. Browser roles have no outbox, mutex or invitations table access; invite codes are generated in Postgres from `gen_random_uuid()` randomness. The sync script alone uses a service-role secret; do not place it in client bundles or application component imports. Neo4j keys are `communityId:event:id` for shared events, `communityId:profile:id` for registered profiles, and `ownerId:person:id` for private people.
 
 ## Graph consistency
 

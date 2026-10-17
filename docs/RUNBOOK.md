@@ -24,7 +24,7 @@ npx --yes supabase@2.119.0 db push --dry-run
 npx --yes supabase@2.119.0 db push
 ```
 
-Set Auth site URL to the deployed app and allow the intended app/preview redirect URLs. The current UI uses email/password signup/sign-in, with email confirmation followed by manual sign-in; no application callback route or OAuth/magic-link flow is implemented. Configure email delivery/confirmation for production. Use the dashboard's publishable key for the browser; use a separate service-role key exclusively for the graph runner. Review backup retention and restore policy before storing real archives. [Migrations](https://supabase.com/docs/guides/deployment/database-migrations), [RLS](https://supabase.com/docs/guides/database/postgres/row-level-security), and [database tests](https://supabase.com/docs/guides/database/testing) are the upstream references.
+Set Auth site URL to the deployed app and allow the intended app/preview redirect URLs. The current UI uses invite-only email/password signup/sign-in, with email confirmation followed by manual sign-in; no application callback route or OAuth/magic-link flow is implemented. Configure email delivery/confirmation for production. Use the dashboard's publishable key for the browser; use a separate service-role key exclusively for the graph runner. Review backup retention and restore policy before storing real archives. [Migrations](https://supabase.com/docs/guides/deployment/database-migrations), [RLS](https://supabase.com/docs/guides/database/postgres/row-level-security), and [database tests](https://supabase.com/docs/guides/database/testing) are the upstream references.
 
 ## Configuration ownership
 
@@ -55,6 +55,18 @@ Add the custom domain in Vercel and apply the exact DNS records it provides in C
 
 If replay jobs exist, stop them while applying this migration, then deploy the new projector before resuming. Older pending queue records are preserved; new snapshot records reproject profiles/events before private attendance. No invite/public access is added. Display name can be changed independently from private person records.
 
+## Invite-only signup and the first account
+
+`20261006000003_invitations.sql` makes registration invite-only. Every signup must carry an unused, unexpired code; the signup trigger consumes it atomically, so a code admits exactly one account. Signed-in members create codes from the TBellini users view, which calls the `create_invitation(expires_in_days)` RPC (1–30 days, default 7). Browsers cannot read or write the `invitations` table.
+
+Nobody can sign up before a code exists, so seed the first one in the privileged SQL editor (or `psql` locally), then sign up with it:
+
+```sql
+insert into public.invitations(code, expires_at) values ('ABCD-2345', now() + interval '7 days');
+```
+
+Codes are 8–12 uppercase letters, digits or dashes; the signup form uppercases input. Inspect use with `select code, created_by, expires_at, used_at, used_by from public.invitations`. Demo mode generates random codes for display only; it has no signup flow to consume them.
+
 ## Neo4j projection
 
 Provision Neo4j Aura or another compatible Neo4j instance. Use TLS (`neo4j+s://` for Aura) and a dedicated credential. Supply `.env.local` server variables from `.env.example`, then:
@@ -75,7 +87,7 @@ For a full rebuild: stop all replay jobs and archive writes, back up Neo4j, remo
 
 ## Workflow behavior and health endpoints
 
-`.github/workflows/ci.yml` runs on pull requests and pushes to `main`. Its app job performs npm clean install, lint, types, domain/runtime/adapter tests, graph/replay/worker tests and build on Node.js 22. Its independent database job starts local Docker-backed Supabase, resets the local database, runs SQL tests and stops it; no hosted secrets are needed. Check the actual repository default branch when adopting the workflow; its push branch filter is explicitly `main`. No GitHub-hosted run was verified in this implementation session.
+`.github/workflows/ci.yml` runs on pull requests and pushes to `site-code` (the repository default branch). Its app job performs npm clean install, lint, types, domain/runtime/adapter tests, graph/replay/worker tests and build on Node.js 22. Its independent database job starts local Docker-backed Supabase, resets the local database, runs SQL tests and stops it; no hosted secrets are needed. No GitHub-hosted run was verified in this implementation session.
 
 `graph-sync.yml` and `cloudflare.yml` are manual dispatch only, opt-in, production-environment jobs with separate concurrency groups and `cancel-in-progress: false`. The graph runner also enforces a database mutex, so local/CI overlap fails. No workflow deploys Supabase migrations or Neo4j hosting, and none creates infrastructure. Apply reviewed database migrations through the operator procedure above. Vercel deploys via its Git integration.
 

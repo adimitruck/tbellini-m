@@ -20,6 +20,7 @@ export function Members({ snapshot, currentUserId, onSaveProfile, onGenerateInvi
   const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
   const [newCode, setNewCode] = useState('');
   const [inviteBusy, setInviteBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
   async function submit(e: FormEvent<HTMLFormElement>): Promise<void> { e.preventDefault(); setBusy(true); setError(''); const data = new FormData(e.currentTarget); try { await onSaveProfile(String(data.get('displayName') ?? '')); } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to save your profile.'); } finally { setBusy(false); } }
   async function generateCode(): Promise<void> {
     setInviteBusy(true);
@@ -27,6 +28,7 @@ export function Members({ snapshot, currentUserId, onSaveProfile, onGenerateInvi
     try {
       const code = await onGenerateInvitation();
       setNewCode(code);
+      setCopied(false);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Unable to generate invitation code.');
     } finally {
@@ -42,9 +44,9 @@ export function Members({ snapshot, currentUserId, onSaveProfile, onGenerateInvi
     </button>
     {newCode && (
       <div style={{ marginTop: '1rem' }}>
-        <p>Share this code or URL with your friend:</p>
-        <input type="text" readOnly value={newCode} style={{ padding: '0.5rem', fontSize: '1rem', width: '200px', marginRight: '0.5rem' }} />
-        <button onClick={(): void => { navigator.clipboard.writeText(newCode); alert('Copied to clipboard!'); }} type="button">Copy</button>
+        <p>Share this single-use code with your friend. It expires in 7 days.</p>
+        <input type="text" readOnly aria-label="Invitation code" value={newCode} style={{ padding: '0.5rem', fontSize: '1rem', width: '200px', marginRight: '0.5rem' }} />
+        <button onClick={(): void => { navigator.clipboard.writeText(newCode).then((): void => setCopied(true), (): void => setError('Copy failed. Select the code and copy it manually.')); }} type="button">{copied ? 'Copied' : 'Copy'}</button>
       </div>
     )}
   </div>

@@ -1,7 +1,8 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 select plan(15);
-insert into auth.users(id) values ('11111111-1111-4111-8111-111111111111'), ('22222222-2222-4222-8222-222222222222');
+insert into public.invitations(code,expires_at) values('TEST-AAAA',now()+interval '1 day'),('TEST-BBBB',now()+interval '1 day');
+insert into auth.users(id,raw_user_meta_data) values ('11111111-1111-4111-8111-111111111111','{"invite_code":"TEST-AAAA"}'), ('22222222-2222-4222-8222-222222222222','{"invite_code":"TEST-BBBB"}');
 insert into public.events(id,owner_id,title,starts_at,ends_at) values
  ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','11111111-1111-4111-8111-111111111111','Private event',now(),now()),
  ('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','22222222-2222-4222-8222-222222222222','Other event',now(),now());

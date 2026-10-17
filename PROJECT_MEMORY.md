@@ -73,3 +73,7 @@ This explicit correction supersedes the initial implementation's private-events-
 ## Repository continuation
 
 The initial implementation and community correction are mapped in [docs/PROJECT_HANDOFF.md](docs/PROJECT_HANDOFF.md). That handoff describes implementation evidence; it does not change the imported roadmap or claim hosted deployment. Supabase remains authoritative, Neo4j is derived, Vercel hosts the app, and Cloudflare's additional capabilities are opt-in scaffolding. Read current source and validation records before extending a capability.
+
+## Invite-only registration — October 8–9, 2026
+
+The user added invite-only registration (commits 28a2536 and 4d10e92), superseding the October 6 note that invitations were not authorized. Any signed-in member can create a single-use code that expires (default 7 days); signup requires one. There are still no admin roles, public access or additional communities. The October 17 hardening moved code generation into the database and sealed the invitations table; see docs/RUNBOOK.md.

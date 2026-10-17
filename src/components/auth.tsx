@@ -1,7 +1,7 @@
 'use client';
 import { useState, type ReactElement, type FormEvent } from 'react';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { profileNameSchema } from '@/domain/community';
+import { inviteCodeSchema, profileNameSchema } from '@/domain/community';
 
 export interface AuthProps { client: SupabaseClient }
 
@@ -20,8 +20,9 @@ export function Auth({ client }: AuthProps): ReactElement {
       const credentials = { email: String(data.get('email')), password: String(data.get('password')) };
       
       if (signup) {
-        const inviteCode = String(data.get('inviteCode') ?? '').trim().toUpperCase();
-        if (!inviteCode) throw new Error('Invite code is required.');
+        const parsedCode = inviteCodeSchema.safeParse(String(data.get('inviteCode') ?? ''));
+        if (!parsedCode.success) throw new Error(parsedCode.error.issues[0]?.message ?? 'Enter a valid invite code.');
+        const inviteCode = parsedCode.data;
         
         const displayName = profileNameSchema.parse(String(data.get('displayName') ?? ''));
         
@@ -35,7 +36,8 @@ export function Auth({ client }: AuthProps): ReactElement {
           }
         });
         
-        if (result.error) throw result.error;
+        // Auth relays the signup trigger's message; some Auth versions report only a generic database error.
+        if (result.error) throw result.error.message.includes('Database error saving new user') ? new Error('That invite code is invalid, expired, or already used.') : result.error;
         
         if (!result.data.session) {
           setMessage('Check your email to confirm your account, then sign in.');

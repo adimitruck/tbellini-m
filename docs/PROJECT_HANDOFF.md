@@ -4,7 +4,7 @@
 
 Build a usable M0 Events & Calendar skeleton that future models can extend with limited supervision. Hosting/providers: Vercel, Supabase Postgres/Auth, Neo4j, Cloudflare, and GitHub Actions where needed. The user's explicit correction makes M0 one TBellini community: every registered account joins automatically; members share events/calendar, authors tag registered users, and each user chooses Going/Interested/Clear for their own calendar. Members can see each other's RSVP state. Private archive people remain separate from registered accounts.
 
-Preserve archive-first M0 priority and capability → user-story roadmap. There is no anonymous event access, invite flow, multi-community UI, social feed, or authorization to alter Linear outside tbellini-m. Existing private events become community visible through the forward migration; private people/notes/links stay private. Read the latest correction in `PROJECT_MEMORY.md` before interpreting older source-transcript wording.
+Preserve archive-first M0 priority and capability → user-story roadmap. There is no anonymous event access, multi-community UI, social feed, or authorization to alter Linear outside tbellini-m. Registration is invite-only (single-use, expiring codes; see migration 4 below). Existing private events become community visible through the forward migration; private people/notes/links stay private. Read the latest correction in `PROJECT_MEMORY.md` before interpreting older source-transcript wording.
 
 ## Read next and document ownership
 
@@ -38,7 +38,7 @@ Dependencies are pinned in `package.json` / `package-lock.json`. Initial verifie
 | `src/lib/archive-config.ts`, `latest-request.ts` | UI/health config readiness and suppression of stale async results/errors across sessions |
 | `src/components/archive-app.tsx` | Composition/provider choice, browser auth lifecycle, member switching, snapshot/mutation state and latest-request guards |
 | `src/components/event-detail.tsx`, `community-views.tsx` | Event author controls, own RSVP, registered-user tags, private links, event list/member profile editing |
-| `src/components/calendar.tsx`, `forms.tsx`, `auth.tsx` | Calendar and validated forms; password signup/sign-in with display name |
+| `src/components/calendar.tsx`, `forms.tsx`, `auth.tsx` | Calendar and validated forms; password signup (display name + invite code)/sign-in |
 | `src/app/page.tsx`, `layout.tsx`, `globals.css`, `error.tsx` | App entry, metadata/theme and route error recovery; preserve existing warm palette |
 | `src/app/api/health/route.ts` | Shared configuration readiness: 200 configured / 503 missing or invalid config; no provider requests |
 | `scripts/sync-graph.mjs`, `replay-outbox.mjs`, `project-graph.mjs`, `neo4j/constraints.cypher` | Service-role ordered replay, idempotent Cypher projection and unique entity key |
@@ -63,6 +63,7 @@ Apply migrations in order and keep applied files immutable:
 1. `supabase/migrations/20261006000000_archive.sql`: original private archive tables, length/time/timezone checks, RLS, timestamps and transactional outbox.
 2. `20261006000001_graph_lock.sql`: service-only non-expiring singleton replay mutex with token-owned acquire/release RPCs.
 3. `20261006000002_community.sql`: forward fixed community/profile/membership/signup/backfill, community events, user tags/RSVPs, immutable identities, new queue types and endpoint-first migration snapshot.
+4. `20261006000003_invitations.sql`: invite-only signup. `invitations` table (RLS, no client grants), signup trigger that atomically consumes a code, and member-only `create_invitation(expires_in_days 1–30)` RPC.
 
 | Tables | Current access and guarantees |
 | --- | --- |
@@ -72,6 +73,7 @@ Apply migrations in order and keep applied files immutable:
 | `event_user_tags` | Members read; event author inserts/manages; composite event/community + membership FKs; no implicit RSVP |
 | `event_rsvps` | Members read; current user alone inserts/updates/deletes own Going/Interested row; keys immutable |
 | `people`, `event_people` | Owner-only private archive; attendance composite FKs require event author and person owner to match |
+| `invitations` | RLS enabled with no browser grants; members call `create_invitation`; signup trigger records `used_at`/`used_by`; codes are single-use |
 | `graph_outbox`, `graph_sync_lock` | RLS enabled with no browser grants/policies; service-role runner only |
 
 Signup membership always uses the fixed community; untrusted metadata never chooses a role or group. Postgres is authoritative. Anonymous browser roles cannot read archive/community data. Never expose the service-role key through `NEXT_PUBLIC_*` or UI modules.
@@ -120,5 +122,5 @@ Dependency review found zero production vulnerabilities and five high developmen
 1. Complete hosted staging M0 verification using two confirmed Supabase accounts; exercise event/tag/RSVP/private-record controls through the actual SDK and browser. Configure Vercel preview only with intended operator authorization.
 2. Add automated browser regressions for auth transitions, forms, calendars, member switching, profile edits and error recovery; review keyboard/mobile/accessibility behavior. Target components/adapters in the source map rather than rewriting the app.
 3. Verify actual Neo4j projection/retry/delete/rebuild in staging; extend runner orchestration coverage against real providers as needed, then choose explicit reconciliation/monitoring before enabling schedules.
-4. Resolve development dependency advisories compatibly; validate lockfile/install/CI again. Confirm `ci.yml` push filter matches the intended default branch.
+4. Resolve development dependency advisories compatibly; validate lockfile/install/CI again. (`ci.yml` push filter now targets the default branch `site-code`.)
 5. Establish backups, queue/lock monitoring, release/rollback practices and operational ownership. Only after M0 acceptance begin M1 places/event enrichment via new cohesive contracts/modules; R2/media starts in M2.
