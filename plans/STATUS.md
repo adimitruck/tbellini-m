@@ -55,7 +55,13 @@ UNCONFIRMED (needs a hosted project or network access to docs; do not assume):
 | 2.8 | Custom domain and Cloudflare DNS (deferred until a domain exists) [APPROVAL] | deferred | | | |
 | D1 | Doc fixes: README, RUNBOOK, ROADMAP, PROJECT_HANDOFF, VALIDATION, PROJECT_MEMORY | done (live smoke test entry waits for 2.7) | 4420f00 | docs checked against source; local e2e result recorded in VALIDATION | 2026-11-14 |
 
+## After go-live (scheduled, not started)
+- `plans/runtime-config-and-admin.md` (decided 2026-11-14, section 8): runtime flags, admin role, suspension. Implement after the live smoke test (2.7).
+- Deferred: 1c real-Neo4j verification, custom domain and Cloudflare (2.8), roadmap Phases 3-8 (`plans/mvp-go-live.md` section 9).
+- `plans/mvp-go-live.md` sections 2 and 4 describe the state at plan time (Phase 1 b-e were then remaining); the Steps table above is the current truth. No replan was needed.
+
 ## Change log
+- 2026-11-14: 79b6db7 fixed stale docs left by the interrupted session (RUNBOOK configure-auth note, merged-branch references, step 2.0 commit). Plans audited: no replan needed; verified lint, tsc, 116 vitest, 45 node tests.
 - 2026-11-14: Decided all 8 questions in plans/runtime-config-and-admin.md (section 8): admin + runtime settings approved, scheduled after go-live; suspension in; SQL owns limits; 60 s refetch, no Realtime; no RSVP edit or creator reassign; Vercel committed; admins visible; graph read-only. Docs only.
 - 2026-11-14: Phase 2 replanned in `plans/mvp-go-live.md` (user decisions): region us-east-2; no domain, `SITE_URL` = Vercel production URL; production branch `main`, `site-code` is legacy Jekyll; scripted bootstrap, configure-auth, seed-member and deploy.yml driven by env vars; Cloudflare deferred. Docs only; nothing provisioned, no code changed.
 - 2026-11-14: Local-stack browser e2e passed (signup with invite, event, RSVP, calendar, tag a new person, invite naming a Person, second signup linking to it, privacy, sign-out/in, health). One bug fixed (bb142a6). Docs committed (4420f00). Nothing provisioned.
