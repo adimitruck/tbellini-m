@@ -1,11 +1,11 @@
 # Runtime configuration, feature flags and admin abilities
 
-Status: PROPOSAL. Nothing here is approved or implemented. Read-only audit of branch feature/base-tbellini-site.
+Status: DECIDED 2026-11-14 (section 8), scheduled AFTER go-live. Not implemented. Read-only audit of branch feature/base-tbellini-site.
 Citations are path:line. "(unverified)" means not checked against a running system.
 
 ## 0. Approval needed (reverses recorded decisions)
 
-This plan reverses two recorded decisions. Do not start step 1 of section 6 until the user approves each row.
+This plan reverses two recorded decisions. The user approved the reversal on 2026-11-14, to start only after the MVP go-live (Phase 2 of plans/mvp-go-live.md) is complete.
 
 | Recorded today | Where | Changes to |
 |---|---|---|
@@ -153,13 +153,13 @@ Docs to update after implementation: ARCHITECTURE.md sections 4-8, RUNBOOK, .env
 6. The shared_space migration's data-converting paths were never run on a non-empty database (ARCHITECTURE.md:208-209); new migrations stack on it.
 7. Roles and admin identity are visible to every member (profiles are member-readable, shared_space.sql:253).
 
-## 8. Open questions for the user
+## 8. Decisions (user, 2026-11-14)
 
-1. Approve reversing "no admin" and "creator-only edits" (section 0)? Before or after go-live? Recommended: after.
-2. Should suspension (`disabled_at`) exist, or only role changes and deletion? Recommended: suspension.
-3. Is SQL the source for enforced limits (recommended), or TS with SQL reading a duplicated constant?
-4. Refetch interval for flags (60 s proposed) and whether Realtime push is wanted.
-5. May admins edit another member's RSVP or reassign a record's creator? Proposed: no to both.
-6. Is Vercel the committed host (the repo also has a Cloudflare worker)? This decides whether Edge Config is ever worth adding.
-7. Should admins be visible to all members (proposed) or hidden?
-8. Graph management: read-only status in the app (proposed), or add a server route holding the service key to trigger replays (not recommended)?
+1. Reversal of "no admin" and "creator-only edits" approved. Timing: AFTER go-live.
+2. Suspension (`disabled_at`) is included, alongside role changes and deletion.
+3. SQL is the source of enforced limits and feature-flag limits; TS reads them rather than duplicating constants.
+4. Flag refetch every 60 s; no Realtime.
+5. Admins may NOT edit another member's RSVP or reassign a record's creator.
+6. Vercel is the committed host, so Edge Config is not planned and the Cloudflare worker stays deferred.
+7. Admins are visible to all members.
+8. Graph management is read-only status in the app; no service-key server route.
