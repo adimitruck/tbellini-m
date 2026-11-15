@@ -1,0 +1,88 @@
+name: Deploy backend
+# Applies migrations, Auth configuration and the first member to the hosted Supabase project, then
+# health-checks the site. App deployments stay with the Vercel Git integration. Every name below is
+# defined in scripts/hosted-config.mjs.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: GitHub Environment to deploy
+        type: choice
+        options: [preview, production]
+        default: production
+permissions:
+  contents: read
+concurrency:
+  group: deploy-${{ inputs.environment || 'production' }}
+  cancel-in-progress: false
+jobs:
+  migrate:
+    # Off until the variable DEPLOY_ENABLED equals true, so merging to main never writes hosted data unasked.
+    if: vars.DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'production' }}
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.119.0
+      - run: supabase link --project-ref "${{ secrets.SUPABASE_PROJECT_REF }}"
+      - run: supabase db push
+  configure-auth:
+    needs: migrate
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'production' }}
+    env:
+      SITE_URL: ${{ vars.SITE_URL }}
+      EXTRA_REDIRECT_URLS: ${{ vars.EXTRA_REDIRECT_URLS }}
+      SMTP_HOST: ${{ vars.SMTP_HOST }}
+      SMTP_PORT: ${{ vars.SMTP_PORT }}
+      SMTP_USER: ${{ vars.SMTP_USER }}
+      SMTP_PASS: ${{ secrets.SMTP_PASS }}
+      SMTP_ADMIN_EMAIL: ${{ vars.SMTP_ADMIN_EMAIL }}
+      SMTP_SENDER_NAME: ${{ vars.SMTP_SENDER_NAME }}
+      SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: node scripts/configure-auth.mjs --apply
+  seed-member:
+    needs: configure-auth
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'production' }}
+    env:
+      SITE_URL: ${{ vars.SITE_URL }}
+      NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SEED_MEMBER_NAME: ${{ vars.SEED_MEMBER_NAME }}
+      SEED_MEMBER_EMAIL: ${{ vars.SEED_MEMBER_EMAIL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: node scripts/seed-member.mjs
+  health:
+    needs: seed-member
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'production' }}
+    env:
+      SITE_URL: ${{ vars.SITE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/deploy-check.mjs

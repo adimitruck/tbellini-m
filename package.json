@@ -11,7 +11,7 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run && node --test scripts/sync-graph.test.mjs scripts/replay-outbox.test.mjs scripts/seed-invite.test.mjs cloudflare/worker.test.mjs"
+    "test": "vitest run && node --test scripts/sync-graph.test.mjs scripts/replay-outbox.test.mjs scripts/seed-invite.test.mjs scripts/seed-member.test.mjs scripts/configure-auth.test.mjs scripts/bootstrap-hosted.test.mjs scripts/deploy-check.test.mjs scripts/hosted-config.test.mjs cloudflare/worker.test.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "0.12.7",

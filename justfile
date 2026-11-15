@@ -12,6 +12,7 @@ health_path := "/api/health"
 env_file := ".env.local"
 env_example := ".env.example"
 confirm_hosted := "hosted"
+github_repo := "adimitruck/tbellini-m"
 
 # List all recipes.
 default:
@@ -43,7 +44,9 @@ need-docker:
 need-confirm confirm action:
     #!/usr/bin/env bash
     set -euo pipefail
-    if [ "{{ confirm }}" != "{{ confirm_hosted }}" ]; then
+    # just passes `confirm=hosted` after a recipe name as one positional value, so accept both forms.
+    given="{{ confirm }}"
+    if [ "${given#confirm=}" != "{{ confirm_hosted }}" ]; then
         echo "error: {{ action }} affects HOSTED services." >&2
         echo "Re-run with confirm={{ confirm_hosted }}, e.g. just {{ action }} confirm={{ confirm_hosted }}" >&2
         exit 1
@@ -166,6 +169,34 @@ seed-invite-local: need-node db-start
     set -euo pipefail
     eval "$({{ supabase }} status -o env)"
     NEXT_PUBLIC_SUPABASE_URL="$API_URL" SUPABASE_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY" node scripts/seed-invite.mjs
+
+# One-time: create the Supabase and Vercel projects and write their env vars. Dry run unless mode=apply.
+# Reads names from .env.local or the shell (see scripts/hosted-config.mjs); requires confirm=hosted.
+[group('hosted')]
+bootstrap confirm="" mode="dry-run": (need-confirm confirm "bootstrap") need-node
+    node --env-file-if-exists={{ env_file }} scripts/bootstrap-hosted.mjs {{ if mode =~ "(^|=)apply$" { "--apply" } else { "" } }}
+
+# Apply Auth settings (Site URL, redirects, SMTP) to the HOSTED project. Dry run unless mode=apply.
+[group('hosted')]
+configure-auth confirm="" mode="dry-run": (need-confirm confirm "configure-auth") need-node
+    node --env-file-if-exists={{ env_file }} scripts/configure-auth.mjs {{ if mode =~ "(^|=)apply$" { "--apply" } else { "" } }}
+
+# Create the first member (SEED_MEMBER_NAME / SEED_MEMBER_EMAIL) on the HOSTED project; requires confirm=hosted.
+[group('hosted')]
+seed-member confirm="": (need-confirm confirm "seed-member") need-node
+    node --env-file-if-exists={{ env_file }} scripts/seed-member.mjs
+
+# GET SITE_URL + health_path of the deployed site (read-only; SITE_URL from .env.local or the shell).
+[group('hosted')]
+deploy-check: need-node
+    node --env-file-if-exists={{ env_file }} scripts/deploy-check.mjs
+
+# Read-only check that this clone can push to github_repo (permissions and a push dry run).
+[group('hosted')]
+access-check:
+    @command -v gh >/dev/null || { echo "error: gh not found" >&2; exit 1; }
+    gh api repos/{{ github_repo }} --jq .permissions
+    git push --dry-run origin HEAD
 
 # GET the running app's health endpoint (status 200 when configured).
 [group('run')]

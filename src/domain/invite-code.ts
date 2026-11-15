@@ -20,3 +20,6 @@ export function generateInviteCode(): string {
   const symbols = Array.from(bytes, (byte): string => INVITE_CODE_ALPHABET[byte % INVITE_CODE_ALPHABET.length]);
   return `${symbols.slice(0, 4).join('')}-${symbols.slice(4).join('')}`;
 }
+
+/** Sign-up metadata keys read by the join_tbellini() trigger; shared by the app and the seed scripts. */
+export const SIGN_UP_METADATA = { displayName: 'display_name', inviteCode: 'invite_code' } as const;

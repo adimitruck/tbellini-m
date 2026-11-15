@@ -31,8 +31,7 @@ export const TABLES = {
   claims: 'person_claims',
 } as const;
 export const CREATOR_COLUMN = { events: 'owner_id', people: 'created_by' } as const;
-/** Sign-up metadata keys read by the join_tbellini() trigger. */
-export const SIGN_UP_METADATA = { displayName: 'display_name', inviteCode: 'invite_code' } as const;
+export { SIGN_UP_METADATA } from '@/domain/invite-code';
 /** Auth relays the trigger's rejection as a generic database error on some versions. */
 export const SIGN_UP_REJECTED_MARKER = 'Database error saving new user';
 export const SESSION_MISSING_ERROR = 'AuthSessionMissingError';
