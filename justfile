@@ -152,6 +152,21 @@ graph-sync confirm="": (need-confirm confirm "graph-sync") need-node
 [group('hosted')]
 replay-outbox confirm="": (graph-sync confirm)
 
+# Create the first invitation on the HOSTED project using .env.local; requires confirm=hosted.
+# Optional env: INVITE_CODE, INVITE_EXPIRY_DAYS. Prints the code, never the service-role key.
+[group('hosted')]
+seed-invite confirm="": (need-confirm confirm "seed-invite") need-node
+    @test -f {{ env_file }} || { echo "error: {{ env_file }} missing; set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY" >&2; exit 1; }
+    node --env-file={{ env_file }} scripts/seed-invite.mjs
+
+# Create an invitation on the LOCAL Supabase stack (reads its URL and service-role key from the CLI).
+[group('database')]
+seed-invite-local: need-node db-start
+    #!/usr/bin/env bash
+    set -euo pipefail
+    eval "$({{ supabase }} status -o env)"
+    NEXT_PUBLIC_SUPABASE_URL="$API_URL" SUPABASE_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY" node scripts/seed-invite.mjs
+
 # GET the running app's health endpoint (status 200 when configured).
 [group('run')]
 health:
