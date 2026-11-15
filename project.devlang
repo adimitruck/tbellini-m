@@ -32,8 +32,9 @@
     - Status: the M0 skeleton (events, calendar, RSVPs, invite-only signup) plus the shared-space model
       (phase 1: database, code, UI, graph projector, docs) is built and tested locally and in demo mode;
       a local-stack browser e2e passed on 2026-11-14. Phase 2 (go live) is code-ready but NOT provisioned:
-      no hosted Supabase, Vercel, Cloudflare or Neo4j, no accounts, and no production data. Provisioning steps
-      2.2-2.5 and 2.8 need the user's approval first (see plans/STATUS.md).
+      no hosted Supabase, Vercel, Cloudflare or Neo4j, no accounts, and no production data. Phase 2 was
+      replanned on 2026-11-14 (plans/mvp-go-live.md): scripted, env-var-driven provisioning; every provisioning
+      run needs the user's approval first (see plans/STATUS.md).
     - The old community, membership, and private-people model is gone from the database (migration
       20261017000000_shared_space.sql), code, UI, graph projector, and docs.
     - Two run modes, chosen by NEXT_PUBLIC_ARCHIVE_MODE:
@@ -413,8 +414,8 @@
     Phases run in order; each one ends with its acceptance check passing. Keep each phase to small
     pull requests. Status values: [in progress], [next], [later], [done].
     Current position (2026-11-14): phases 0 and 1 (steps 1a-1e) are done on feature/base-tbellini-site (commit
-    b0de4bd). Phase 2 is [next]: its code parts (2.1 seed script, 2.6 health ping) are done; the provisioning
-    steps 2.2, 2.3, 2.4, 2.5 and 2.8 need the user's approval, plus a production domain name and Supabase region.
+    b0de4bd). Phase 2 is [next] and was replanned on 2026-11-14: its code parts (2.1 seed script, 2.6 health
+    ping) are done; the provisioning runs (2.2, 2.3, 2.4, 2.5, 2.5b, 2.9 first run, 2.8) need the user's approval.
     Step log: plans/STATUS.md.
 
     <detail name="Phase 0 — Fix invite-only signup [done: commit 5810760, merged 2026-10-17]">
@@ -443,9 +444,18 @@
     <detail name="Phase 2 — Go live with M0 [next; code-ready, not provisioned]">
       Done in code: 2.1 first-invite seed script and RUNBOOK (70c4c90, 4420f00; not run against hosted);
       2.6 health ping to Supabase (70c4c90; not run against a live project).
-      Needs user approval before any provisioning: 2.2 Supabase prod project and db push; 2.3 hosted Auth
-      config; 2.4 seed the first invite on prod; 2.5 Vercel project, env vars, Node 22; 2.8 Cloudflare DNS.
+      Decisions (2026-11-14): Supabase region us-east-2; no domain yet, so SITE_URL is the Vercel production
+      URL and a later domain is one variable change plus re-running configure-auth; production branch is main
+      (site-code is the legacy Jekyll site); feature/base-tbellini-site reaches main by pull request; push access
+      to origin is verified before the first push; Cloudflare is deferred until a domain exists.
+      No-approval work first: 2.0 spike (config push, Management API, redirect wildcard, createUser metadata,
+      Vercel env calls), 2.10 emailRedirectTo from the current origin, 2.11 CI triggers to main, 2.12 justfile.
+      Needs user approval before running: 2.2 bootstrap of Supabase and Vercel projects; 2.3/2.9 deploy.yml
+      (db push, configure-auth, seed first member, health check); 2.4 configure-auth; 2.5 seed the first
+      member from env vars; 2.5b Vercel settings; 2.8 Cloudflare DNS (deferred).
       Then 2.7, the live smoke test with two real accounts.
+      Pending design: plans/runtime-config-and-admin.md (runtime feature flags and an admin role); the
+      "no admin role" decision is under review, not changed.
       Remaining work: provision Supabase (prod plus a preview project), Vercel, and the domain on Cloudflare;
       add automated browser tests (sign up with invite, create event, RSVP, My calendar);
       add URL routes for event pages; set up backups and basic monitoring.
@@ -524,6 +534,6 @@
     - Do other members' "I went" records about someone need that person's confirmation?
     - Model festivals as a Series plus yearly editions with day/stage child events? (This is the proposed default.)
     - What does astrology mean for this group (member birth charts, the sky at events, both)?
-    - What are the production domain name and Supabase region? (needed for steps 2.2, 2.3, 2.8)
+    - Resolved 2026-11-14: region us-east-2; no production domain yet (SITE_URL is the Vercel production URL).
   </questions>
 </project>

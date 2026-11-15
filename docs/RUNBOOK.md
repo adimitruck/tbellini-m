@@ -48,15 +48,15 @@ Hosted Auth settings are dashboard values; `db push` does not apply them, and `s
 
 | Setting | Value |
 | --- | --- |
-| Site URL | The production URL. Confirmation emails link to it; the app passes no `emailRedirectTo` |
+| Site URL | `SITE_URL`: the production URL (until a domain exists, the Vercel production URL `<project>-<scope>.vercel.app`). Confirmation emails link to it; the app currently passes no `emailRedirectTo` (planned: pass the current origin, plan step 2.10) |
 | Redirect URLs allow-list | The production URL and the Vercel preview pattern `https://*-<team>.vercel.app/**` (this project's team is `queen-of-hearts`; confirm the exact preview host in Vercel) |
 | Email provider | Enabled |
 | Confirm email | On (matches `enable_confirmations = true` locally) |
 | Signups | Enabled. The invite gate is the `join_tbellini()` database trigger, so disabling signups would break invited signup |
-| SMTP | Custom SMTP configured. The built-in sender is heavily rate-limited and unusable for real invites |
+| SMTP | Custom SMTP configured (`SMTP_*`). The built-in sender only reaches Supabase team members at about 2 emails per hour, so it cannot invite anyone else |
 | Minimum password length | Set deliberately (a value is not fixed by this repository) |
 
-After a domain change (Cloudflare DNS), update the Site URL and allow-list again. These values have never been applied to a hosted project; verify with a signup whose confirmation link must land on the production URL. The current UI uses invite-only email/password signup/sign-in, with email confirmation followed by manual sign-in; no application callback route or OAuth/magic-link flow is implemented. Use the dashboard's publishable key for the browser; use a separate service-role key exclusively for the graph runner. Review backup retention and restore policy before storing real archives. [Migrations](https://supabase.com/docs/guides/deployment/database-migrations), [RLS](https://supabase.com/docs/guides/database/postgres/row-level-security), and [database tests](https://supabase.com/docs/guides/database/testing) are the upstream references.
+Planned (plans/mvp-go-live.md Phase 2 replan, not implemented yet): a configure-auth script will apply these values from `SITE_URL`, `EXTRA_REDIRECT_URLS` and `SMTP_*` (GitHub Environment `preview` and `production` variables), and `deploy.yml` will run it after `db push`; the hosted region is `us-east-2`. Until then the values are set by hand. When a domain is added later, change `SITE_URL` and re-apply the Site URL and allow-list. These values have never been applied to a hosted project; verify with a signup whose confirmation link must land on the production URL. The current UI uses invite-only email/password signup/sign-in, with email confirmation followed by manual sign-in; no application callback route or OAuth/magic-link flow is implemented. Use the dashboard's publishable key for the browser; use a separate service-role key exclusively for the graph runner. Review backup retention and restore policy before storing real archives. [Migrations](https://supabase.com/docs/guides/deployment/database-migrations), [RLS](https://supabase.com/docs/guides/database/postgres/row-level-security), and [database tests](https://supabase.com/docs/guides/database/testing) are the upstream references.
 
 ## Configuration ownership
 
@@ -79,7 +79,7 @@ Do not add credentials to tracked files. `.env.example` contains placeholders, a
 
 Import this GitHub repository into Vercel using the Next.js preset, Node.js 22 (`engines` requires 22.18 or newer; there is no `.nvmrc`, so set this in the project settings), `npm run build`, and the default output directory. Set `NEXT_PUBLIC_ARCHIVE_MODE=supabase`, `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` per environment before the first build: they are inlined at build time, so changing them later needs a rebuild, and a build without them succeeds but reports "unconfigured" (CI builds this way, so it does not prove a supabase-mode build). Do not set the service-role key on Vercel. Use a separate Supabase development/preview project when preview deployments need durable data. Vercel Git integration supplies previews and production deployment; there is no duplicate Vercel deploy workflow.
 
-Add the custom domain in Vercel and apply the exact DNS records it provides in Cloudflare. Begin with DNS-only records. Adding Cloudflare proxying requires reviewing [Vercel's Cloudflare integration guidance](https://vercel.com/docs/integrations/external-platforms/cloudflare), cache behavior and TLS; never cache authenticated archive responses. Git integration guidance: [Vercel Git deployments](https://vercel.com/docs/deployments/git).
+Cloudflare and a custom domain are deferred: there is no domain yet and `SITE_URL` is the Vercel production URL. Vercel Authentication (deployment protection) blocks signed-out visitors on previews. Production deploys from `main` through the Vercel Git integration. When a domain exists, add it in Vercel and apply the exact DNS records it provides in Cloudflare. Begin with DNS-only records. Adding Cloudflare proxying requires reviewing [Vercel's Cloudflare integration guidance](https://vercel.com/docs/integrations/external-platforms/cloudflare), cache behavior and TLS; never cache authenticated archive responses. Git integration guidance: [Vercel Git deployments](https://vercel.com/docs/deployments/git).
 
 ## Migrations
 
@@ -131,7 +131,7 @@ Graph node keys changed with the shared-space model (`event:<id>`, `person:<id>`
 
 ## Workflow behavior and health endpoints
 
-`.github/workflows/ci.yml` runs on pull requests and pushes to `site-code` (the repository default branch). Its app job performs npm clean install, lint, types, domain/runtime/adapter tests, graph/replay/worker tests and build on Node.js 22. Its independent database job starts local Docker-backed Supabase, resets the local database, runs SQL tests and stops it; no hosted secrets are needed. No GitHub-hosted run was verified in this implementation session.
+`.github/workflows/ci.yml` runs on pull requests and pushes to `site-code` (the repository default branch today; the production branch is `main` and `site-code` is the legacy Jekyll site, so the trigger is to move to `main`, plan step 2.11). Its app job performs npm clean install, lint, types, domain/runtime/adapter tests, graph/replay/worker tests and build on Node.js 22. Its independent database job starts local Docker-backed Supabase, resets the local database, runs SQL tests and stops it; no hosted secrets are needed. No GitHub-hosted run was verified in this implementation session.
 
 `graph-sync.yml` and `cloudflare.yml` are manual dispatch only, opt-in, production-environment jobs with separate concurrency groups and `cancel-in-progress: false`. The graph runner also enforces a database mutex, so local/CI overlap fails. No workflow deploys Supabase migrations or Neo4j hosting, and none creates infrastructure. Apply reviewed database migrations through the operator procedure above. Vercel deploys via its Git integration.
 

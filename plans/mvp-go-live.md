@@ -90,41 +90,93 @@ Every step here that provisions or writes externally is **[APPROVAL]**.
 - Verification: run against the local stack; signup with that code succeeds; second use fails.
 - Rollback: delete the invitation row.
 
-### 2.2 Supabase production project **[APPROVAL]**
-- Inputs: Supabase account (0 projects today), region choice, org.
-- Deliverables: production project (plus a preview/branch project if wanted); `supabase link` and `supabase db push` applying all five migrations; backups confirmed.
-- Prerequisites: user OK, 1b merged (schema is stable).
-- Verification: `supabase migration list` shows all five applied; Dashboard table list matches; RLS enabled on all tables; run security advisor.
-- Rollback: forward-only; fix with a new migration. A fresh project may be deleted before any real data exists.
+### Phase 2 replan (user decisions 2026-11-14)
 
-### 2.3 Hosted Auth configuration **[APPROVAL]** (dashboard writes; `db push` does not apply them, `config.toml:17-25` governs only the local stack)
-Values to set in Dashboard > Authentication:
-- Site URL = production URL (confirmation emails link to it; the app passes no `emailRedirectTo`, `src/components/auth.tsx:29-36`).
-- Redirect URL allow-list = production URL plus Vercel preview pattern `https://*-<team>.vercel.app/**`.
-- Email provider enabled; Confirm email ON (matches local config); signups ENABLED (the invite gate is the DB trigger; disabling signups breaks it).
-- Custom SMTP configured (built-in sender is heavily rate-limited, unusable for real invites).
-- Minimum password length set.
-- Verification: signup with the seeded invite sends an email whose link lands on the production URL. Rollback: revert dashboard values.
+Replaces the dashboard-driven steps 2.2-2.5 and 2.8 of the earlier plan. Everything environment-specific is configuration, not code, so a later domain change means changing one variable and re-running.
 
-### 2.4 Seed first invite **[APPROVAL]**
-Run 2.1 against production. Verify one `invitations` row exists with `used_at` null. Rollback: delete the row.
+- Supabase region: `us-east-2`.
+- No production domain yet. `SITE_URL` is the Vercel production URL (`<project>-<scope>.vercel.app`). Adding a domain later = change `SITE_URL` and re-run configure-auth (2.4).
+- Production branch is `main` (Vercel production deploys from `main`). `site-code` is the legacy Jekyll site, not production. `feature/base-tbellini-site` reaches `main` by pull request. CI triggers (`.github/workflows/ci.yml:5`, currently `branches: [site-code]`) must move to `main` (2.11).
+- Cloudflare is deferred until a domain exists (2.8).
+- Execution order: 2.0, 2.11, 2.10, 2.12 (code and docs, no approval), then 2.2, 2.3 / 2.4 / 2.5, 2.9, 2.7 (each run is **[APPROVAL]**).
 
-### 2.5 Vercel project and env vars **[APPROVAL]**
-- Team `queen-of-hearts` (team_Ha9uJkETPIVPX2Pnc3I2E09W), 0 projects, access authorized for this session.
-- Set Node 22 (no `.nvmrc`; manual dashboard setting, RUNBOOK:48; consider adding `.nvmrc`).
-- Set before the first build: `NEXT_PUBLIC_ARCHIVE_MODE=supabase`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (names per `.env.example`; confirm exact names there). Do not set the service-role key unless a server route needs it.
-- Note: CI `npm run build` has no `NEXT_PUBLIC_*` and builds as "unconfigured"; it does not prove a supabase-mode build. Verify the Vercel build log.
-- Verification: build succeeds; production URL shows the login page, not "unconfigured". Rollback: Vercel instant rollback to a previous deployment; remove the project if needed.
+#### Configuration contract (names only; no secrets here)
+Set as GitHub Environment variables or secrets for the `preview` and `production` environments. Local runs read the same names from the ignored `.env.local` or the shell.
 
-### 2.6 Health ping
-- Extend `src/app/api/health/route.ts` to ping Supabase (no secrets in the response; expose only ok/degraded). Add a unit test. Prerequisite: 1b. Verification: `curl <url>/api/health`.
-- Optional uptime monitor later.
+| Name | Kind | Purpose |
+|---|---|---|
+| `SITE_URL` | var | Auth Site URL and the base for redirects |
+| `EXTRA_REDIRECT_URLS` | var | Comma-separated additional redirect allow-list entries (for example the preview wildcard) |
+| `SUPABASE_REGION` | var | Region for project creation (`us-east-2`) |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_ADMIN_EMAIL`, `SMTP_SENDER_NAME` | var (`SMTP_PASS` secret) | Custom SMTP for Auth email (exact set confirmed by the spike) |
+| `SEED_MEMBER_EMAIL`, `SEED_MEMBER_NAME` | var | First member. Set in the GitHub Environment, never committed |
+| `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `NEXT_PUBLIC_ARCHIVE_MODE` | var | Browser build values (also set in Vercel) |
+| `SUPABASE_PROJECT_REF`, `SUPABASE_ACCESS_TOKEN`, `SUPABASE_DB_PASSWORD`, `SUPABASE_SERVICE_ROLE_KEY` | secret | Link, push, Management API and service-role seeding. Never browser-visible |
+| `VERCEL_TOKEN`, `VERCEL_PROJECT_ID`, `VERCEL_ORG_ID` | secret | Bootstrap script only, if the Vercel API or CLI is used |
 
-### 2.7 Smoke test on the live URL
-Steps: sign up with the seeded invite; confirm email; create event; RSVP; open calendar; create second invite; second user signs up and sees the event; creator-only edit denied for the second user; signed-out visitor sees nothing. Acceptance: two real accounts pass, then the group is invited. Record in `docs/VALIDATION.md`.
+First member: the project owner, supplied only through the `SEED_MEMBER_NAME` / `SEED_MEMBER_EMAIL` environment values (GitHub Environment variables), never committed.
 
-### 2.8 Cloudflare DNS (later) **[APPROVAL]**
-Point the custom domain at Vercel; update Supabase Site URL and redirect list and Vercel domain. Optional worker (`cloudflare/worker.js`, `/health`) deploys only via the repo-var-gated manual workflow. Rollback: revert DNS records.
+### 2.0 Spike: confirm the unverified mechanics (no approval; local stack only)
+Confirm each item against current docs and the local stack before building 2.2-2.9, and record the answers in this file:
+1. `supabase config push` applies `[auth]` `site_url`, `additional_redirect_urls` and `[auth.email.smtp]` from `config.toml` using `env()` substitution. If not, use the Management API.
+2. Management API auth-config field names (site URL, redirect list, SMTP, password length, confirmations, signups).
+3. Redirect wildcard syntax for the Vercel preview pattern.
+4. An Admin `createUser` call with `user_metadata` (display name, invite marker) reaches the `join_tbellini()` trigger as intended, and a service-role invite path works with the invite-only gate. Test on the local stack.
+5. Vercel env-var REST or CLI calls (create/upsert per environment, project creation, Git link).
+- Verification: each item marked confirmed or changed, with the command or doc cited. Rollback: none needed (read-only and local).
+
+### 2.2 Bootstrap script: Supabase and Vercel projects **[APPROVAL to run]**
+- Deliverable: a one-time idempotent script (`scripts/bootstrap-hosted.mjs`, recipe `just bootstrap confirm=hosted`) that creates the Supabase project in `SUPABASE_REGION`, creates the Vercel project, and writes the env vars of the contract above to Vercel and the GitHub Environments. Dry-run by default; prints names, never values.
+- Prerequisites: 2.0, user OK, tokens in the environment. Vercel team `queen-of-hearts` (team_Ha9uJkETPIVPX2Pnc3I2E09W), 0 projects, authorized for this session.
+- Verification: dry-run lists intended actions; after the run, both projects exist and `supabase link` succeeds. Rollback: delete the new projects while empty (before any real data).
+
+### 2.3 Migrations through deploy.yml **[APPROVAL for the first run]**
+See 2.9. `supabase link` plus `supabase db push` applies all five migrations. Verification: `supabase migration list` shows all applied; RLS enabled on all tables; security advisor run. Rollback: forward-only; fix with a new migration.
+
+### 2.4 configure-auth script **[APPROVAL to run]**
+- Deliverable: `scripts/configure-auth.mjs` (recipe `just configure-auth confirm=hosted`), driven only by env vars, applying through the method chosen in 2.0: Site URL = `SITE_URL`; redirect allow-list = `SITE_URL` plus `EXTRA_REDIRECT_URLS`; email provider on; Confirm email on; signups enabled (the invite gate is the DB trigger); custom SMTP from `SMTP_*`; minimum password length. Idempotent; prints a diff, never secrets.
+- Verification: reading the config back shows the values; a signup email link lands on `SITE_URL`. Rollback: re-run with the previous values.
+
+### 2.5 Seed the first member **[APPROVAL to run]** (replaces the invite-code seeding of the old 2.4)
+- Deliverable: `scripts/seed-member.mjs` (recipe `just seed-member confirm=hosted`). Using the service role, it calls Admin `createUser` (or `inviteUserByEmail`, per 2.0) with `SEED_MEMBER_EMAIL` and display name `SEED_MEMBER_NAME`. The password is set by the member through the reset email, not by the script. Idempotent: an existing user is left unchanged.
+- Constraint: the built-in Supabase SMTP only delivers to Supabase team members and at about 2 emails per hour, so custom SMTP (2.4) is required before inviting anyone else.
+- The 2.1 invite-code script stays as a fallback and for later invites.
+- Verification: one `auth.users` row and its profile/Person exist; the reset email arrives and the link lands on `SITE_URL`. Rollback: delete the user in the dashboard or via the Admin API.
+
+### 2.9 deploy.yml (GitHub Actions) **[APPROVAL for the first run]**
+- Deliverable: `.github/workflows/deploy.yml`, triggered on pushes to `main` and manual dispatch, using GitHub Environments `preview` and `production`. Jobs in order: `supabase link` + `supabase db push`; configure-auth (2.4); seed first member (2.5); health check against `SITE_URL/api/health`. App deployments stay with the Vercel Git integration (2.5 notes below), not this workflow.
+- Verification: workflow run is green; migration list and health check pass. Rollback: disable the workflow; migrations are forward-only.
+
+### 2.10 App passes `emailRedirectTo` (code change; no approval)
+Gap: `src/components/auth.tsx` passes no `emailRedirectTo`, so email links go to the dashboard Site URL even on previews. Pass the current origin (`window.location.origin`) so previews and a future domain work without a rebuild-time URL. Add a test. Verification: unit test plus the 2.7 smoke test.
+
+### 2.11 Repository access, branch flow, CI trigger (no approval for the check)
+- Push access to `origin` (`adimitruck/tbellini-m`) is untested. Add a verify-access step before the first push (for example `gh api repos/adimitruck/tbellini-m --jq .permissions` and `git push --dry-run`); stop and report if it fails.
+- Move `.github/workflows/ci.yml` triggers from `site-code` to `main`. Open a PR from `feature/base-tbellini-site` into `main`.
+- Update RUNBOOK line about CI branch. Rollback: revert the workflow edit.
+
+### 2.12 justfile recipes (no approval; hosted recipes keep `confirm=hosted`)
+Add recipes for each new step: `bootstrap`, `configure-auth`, `seed-member`, `deploy-check` (health against `SITE_URL`) and an access check. Document them in the RUNBOOK recipe table.
+
+### 2.5b Vercel project settings **[APPROVAL]**
+- Keep the Vercel Git integration for app deploys (production from `main`, previews from other branches).
+- Node.js 22 in project settings (`engines` requires `>=22.18`; there is no `.nvmrc`).
+- Set `NEXT_PUBLIC_ARCHIVE_MODE=supabase`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` before the first build. No service-role key in Vercel.
+- Vercel Authentication (deployment protection) blocks previews for signed-out visitors; decide per environment and note it in the RUNBOOK.
+- CI `npm run build` has no `NEXT_PUBLIC_*` and builds as "unconfigured"; verify the Vercel build log.
+- Verification: build succeeds; the production URL shows the login page, not "unconfigured". Rollback: Vercel instant rollback; remove the project if needed.
+
+### 2.6 Health ping (done)
+Extended `src/app/api/health/route.ts` to ping Supabase (ok/degraded only); `tests/health.test.ts`. Not run against a live project. Optional uptime monitor later.
+
+### 2.7 Smoke test on the live URL (kept)
+Steps: seeded first member sets a password via the reset email and signs in; create event; RSVP; open calendar; create second invite; second user signs up and sees the event; creator-only edit denied for the second user; signed-out visitor sees nothing. Acceptance: two real accounts pass, then the group is invited. Record in `docs/VALIDATION.md`.
+
+### 2.8 Custom domain and Cloudflare DNS (deferred until a domain exists) **[APPROVAL]**
+When a domain is bought: add it in Vercel, apply the DNS records in Cloudflare, set `SITE_URL` to the new domain in the GitHub Environment and re-run configure-auth (2.4). No code change. Optional worker (`cloudflare/worker.js`, `/health`) deploys only via the repo-var-gated manual workflow. Rollback: revert DNS records and `SITE_URL`.
+
+### Pending design (not part of Phase 2)
+`plans/runtime-config-and-admin.md` is being written by another agent: runtime feature flags without rebuilds, and an admin role. The 2026-10-17 decision "no admin role" (this plan, MVP definition item 4; `PROJECT_MEMORY.md`) is under review and is not changed by this replan.
 
 ### Phase 2 optional extras (project.devlang)
 Browser tests, URL routes for event pages, backups and basic monitoring. Not required for the first smoke test; schedule after 2.7.
@@ -151,14 +203,16 @@ Another agent is rewriting `docs/ARCHITECTURE.md`; do not touch it from this pla
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| Hosted Supabase Auth never exercised | signup or email links fail live | do 2.3 and 2.7 early on a preview project |
-| First-invite gap | nobody can sign up | 2.1 before 2.4 |
-| Hosted auth config not applied by `db push` | wrong redirect URLs, rate-limited email | explicit checklist in 2.3 |
+| Hosted Supabase Auth never exercised | signup or email links fail live | do 2.4 and 2.7 early on a preview project |
+| First-invite gap | nobody can sign up | seed first member (2.5) or 2.1 invite script |
+| Push access to origin untested | first push or CI move fails | verify-access step (2.11) |
+| Unverified config-push / Management API / createUser mechanics | wrong auth config or seeding | spike 2.0 first |
+| Hosted auth config not applied by `db push` | wrong redirect URLs, rate-limited email | configure-auth script (2.4) |
 | Data-migrating paths in step a untested on non-empty DB | migration failure on a DB with data | apply to an empty prod DB; test with seeded local data if any exists |
 | `tsc` and build fail between step a and 1b | broken branch | do not deploy until 1b is merged |
 | CI build proves only unconfigured mode | supabase-mode build break unseen | verify Vercel build; optionally add CI build with dummy `NEXT_PUBLIC_*` |
 | Immutable migrations | mistakes need forward fixes | review each migration before 2.2 |
-| Email deliverability (SMTP) | invites not received | custom SMTP; test with a real inbox |
+| Email deliverability (SMTP) | invites not received; built-in SMTP reaches only team members at 2/hour | custom SMTP; test with a real inbox |
 | Quality degradation in long sessions | rule drift | small PRs; fresh session when quality drops |
 
 ## 9. Deferred roadmap (project.devlang Phases 3-8)
@@ -179,7 +233,7 @@ Another agent is rewriting `docs/ARCHITECTURE.md`; do not touch it from this pla
 4. Festival model: Series plus yearly editions with child events (proposed default).
 5. Astrology scope (member birth charts, sky at events, both).
 6. User-story IDs live in the Linear project tbellini-m, not the repo; the traceability table below uses plan step IDs and must be cross-linked to Linear by the user or with explicit permission to read Linear.
-7. Production domain name and Supabase region (needed for 2.2, 2.3, 2.8).
+7. RESOLVED 2026-11-14: region us-east-2; no domain yet, `SITE_URL` is the Vercel production URL (see Phase 2 replan).
 8. Whether to add a preview Supabase project, or use one prod project only at first.
 
 ## 11. Requirements to step traceability
@@ -190,11 +244,11 @@ Another agent is rewriting `docs/ARCHITECTURE.md`; do not touch it from this pla
 | Creator-only edit/delete | 1a (done), 1b | pgTAP; adapter tests; smoke test |
 | Self-only RSVP; tags do not imply RSVP | 1a, 1b | pgTAP; unit tests |
 | Shared Person, non-account person taggable then linked | 1a, 1b, 1d | unit + local manual run |
-| Invite-only signup, any member invites | 0 (done), 1a, 2.1, 2.4 | pgTAP; live signup |
+| Invite-only signup, any member invites | 0 (done), 1a, 2.1, 2.5 | pgTAP; live signup |
 | No community/membership references | 1a, 1b, 1e | grep in `src`, docs |
 | All tests pass (unit, SQL, graph) | 1b, 1c | npm test, supabase test db |
 | Demo vs supabase mode correct in prod | 2.5 | live URL not "unconfigured" |
-| Hosted Auth works | 2.3, 2.7 | email link lands on prod URL |
+| Hosted Auth works | 2.4, 2.7 | email link lands on prod URL |
 | Two accounts smoke test on prod | 2.2-2.7 | recorded in VALIDATION.md |
 | Docs match shared model | 1e, section 6 | grep |
 | Secrets never in browser or git | 2.5, all | env var audit; `.gitignore` |
