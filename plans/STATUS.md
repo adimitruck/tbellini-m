@@ -15,6 +15,20 @@ Last updated: 2026-11-14 (steps 0-1e, 2.1, 2.6 and D1 done; Phase 2 replanned)
 - User approval before any provisioning (steps 2.2, 2.3, 2.4, 2.5, 2.8).
 - Pending design: `plans/runtime-config-and-admin.md` (runtime feature flags and an admin role) is being written by another agent; the 2026-10-17 "no admin role" decision is under review, not changed.
 
+## Spike 2.0 findings (2026-11-14, local stack, Supabase CLI 2.119.0; nothing hosted touched)
+
+CONFIRMED locally:
+- `env()` substitution: with `site_url = "env(SPIKE_SITE_URL)"` the CLI start passed `GOTRUE_SITE_URL` and `GOTRUE_URI_ALLOW_LIST` to the auth container with the variable's value (checked with `docker inspect supabase_auth_tbellini-m`). The temporary config change was reverted.
+- Redirect wildcard: entry `https://*-spike.vercel.app/**` made a reset email keep `redirect_to=https://abc-spike.vercel.app/`; a non-matching `https://evil.example.com/` fell back to the Site URL (no error). For Vercel previews use `https://*-<scope>.vercel.app/**`.
+- Admin `createUser` with `user_metadata {display_name, invite_code}` reaches `join_tbellini()`: profile created with the display name, invitation marked used. WITHOUT an invitation row it fails (`Database error creating new user`, HTTP 500), and a reused code fails the same way. So seed-member must first insert an invitation with the service role and pass its code as `invite_code` (the trigger is not bypassed for admin calls).
+- Existing email: `createUser` returns `email_exists` (code `email_exists`), which seed-member treats as "already seeded, leave unchanged".
+- `supabase config push --help`: pushes only declared properties to the linked project (or branch), prompts per change unless `--yes`/`SUPABASE_YES`; `config diff` previews.
+
+UNCONFIRMED (needs a hosted project or network access to docs; do not assume):
+- That `config push` applies `[auth.email.smtp]` with `env()` on a hosted project (local `start` cannot prove push behavior; it needs a link). configure-auth is therefore built on the Management API (`PATCH /v1/projects/{ref}/config/auth`) and its field names are UNCONFIRMED.
+- Management API auth field names (`site_url`, `uri_allow_list`, `smtp_*`, `password_min_length`, `mailer_autoconfirm`, `disable_signup`): written from memory of the API, UNCONFIRMED.
+- Vercel env-var REST/CLI calls, project creation and Git link: UNCONFIRMED.
+
 ## Steps
 
 | ID | Title | Status | Commit | Verified by | Date |
@@ -26,7 +40,7 @@ Last updated: 2026-11-14 (steps 0-1e, 2.1, 2.6 and D1 done; Phase 2 replanned)
 | 1d | UI: People page, tag picker, labels, claim UI | done | 1efc757 | lint, tsc, vitest, build pass; local-stack browser e2e PASS (VALIDATION.md); invite input fix bb142a6 | 2026-11-14 |
 | 1e | Docs to shared model | done | 4420f00 | grep for community/membership/private people over the in-scope docs; examples checked against source | 2026-11-14 |
 | 2.1 | First-invite seeding script and RUNBOOK | done | 70c4c90 (script); 4420f00 (RUNBOOK) | node tests (seed-invite.test.mjs); `just seed-invite confirm=hosted` documented; not run against hosted | 2026-11-14 |
-| 2.0 | Spike: config push, Management API, redirect wildcard, createUser metadata, Vercel env calls | todo | | | |
+| 2.0 | Spike: config push, Management API, redirect wildcard, createUser metadata, Vercel env calls | partial (local items 1, 3, 4 done; items 2, 5 and hosted push UNCONFIRMED) | docs(plans) spike commit | local stack, CLI 2.119.0 | 2026-11-14 |
 | 2.2 | Bootstrap script, then Supabase and Vercel projects [APPROVAL to run] | todo | | | |
 | 2.3 | Migrations via deploy.yml [APPROVAL first run] | todo | | | |
 | 2.4 | configure-auth script, then hosted Auth config [APPROVAL to run] | todo | | | |
