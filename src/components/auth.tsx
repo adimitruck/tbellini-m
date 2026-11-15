@@ -1,50 +1,35 @@
 'use client';
-import { useState, type ReactElement, type FormEvent } from 'react';
-import type { SupabaseClient } from '@supabase/supabase-js';
-import { inviteCodeSchema, profileNameSchema } from '@/domain/community';
+import { useState, type FormEvent, type ReactElement } from 'react';
+import type { AuthPort } from '@/domain/ports';
 
-export interface AuthProps { client: SupabaseClient }
+export interface AuthProps {
+  auth: AuthPort;
+}
 
-export function Auth({ client }: AuthProps): ReactElement {
+const CHECK_EMAIL = 'Check your email to confirm your account, then sign in.';
+
+export function Auth({ auth }: AuthProps): ReactElement {
   const [signup, setSignup] = useState(false);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
 
-  async function submit(e: FormEvent<HTMLFormElement>): Promise<void> {
-    e.preventDefault();
-    const data = new FormData(e.currentTarget);
+  async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const field = (name: string): string => String(data.get(name) ?? '');
     setBusy(true);
     setMessage('');
-
     try {
-      const credentials = { email: String(data.get('email')), password: String(data.get('password')) };
-      
+      const credentials = { email: field('email'), password: field('password') };
       if (signup) {
-        const parsedCode = inviteCodeSchema.safeParse(String(data.get('inviteCode') ?? ''));
-        if (!parsedCode.success) throw new Error(parsedCode.error.issues[0]?.message ?? 'Enter a valid invite code.');
-        const inviteCode = parsedCode.data;
-        
-        const displayName = profileNameSchema.parse(String(data.get('displayName') ?? ''));
-        
-        const result = await client.auth.signUp({
+        const result = await auth.signUp({
           ...credentials,
-          options: {
-            data: {
-              display_name: displayName,
-              invite_code: inviteCode,
-            }
-          }
+          displayName: field('displayName'),
+          inviteCode: field('inviteCode'),
         });
-        
-        // Auth relays the signup trigger's message; some Auth versions report only a generic database error.
-        if (result.error) throw result.error.message.includes('Database error saving new user') ? new Error('That invite code is invalid, expired, or already used.') : result.error;
-        
-        if (!result.data.session) {
-          setMessage('Check your email to confirm your account, then sign in.');
-        }
+        if (result === 'confirmation-required') setMessage(CHECK_EMAIL);
       } else {
-        const result = await client.auth.signInWithPassword(credentials);
-        if (result.error) throw result.error;
+        await auth.signIn(credentials);
       }
     } catch (cause) {
       setMessage(cause instanceof Error ? cause.message : 'Authentication failed.');
@@ -55,9 +40,9 @@ export function Auth({ client }: AuthProps): ReactElement {
 
   return (
     <section className="auth-card">
-      <p className="eyebrow">THE TBELLINI COMMUNITY</p>
+      <p className="eyebrow">THE TBELLINI GROUP</p>
       <h1>A place for our moments.</h1>
-      <p className="muted">Sign up to automatically join TBellini. Share events and build your own calendar.</p>
+      <p className="muted">Sign up with an invite code to join TBellini. Share events and build your own calendar.</p>
       <form className="record-form" onSubmit={submit}>
         {signup && (
           <label>
@@ -68,14 +53,14 @@ export function Auth({ client }: AuthProps): ReactElement {
         {signup && (
           <label>
             Invite code
-            <input 
-              name="inviteCode" 
-              autoComplete="off" 
-              maxLength={12} 
-              minLength={8} 
+            <input
+              name="inviteCode"
+              autoComplete="off"
+              maxLength={12}
+              minLength={8}
               pattern="[A-Za-z0-9-]{8,12}"
               placeholder="ABCD-1234"
-              required 
+              required
             />
           </label>
         )}
@@ -85,12 +70,12 @@ export function Auth({ client }: AuthProps): ReactElement {
         </label>
         <label>
           Password
-          <input 
-            type="password" 
-            name="password" 
-            minLength={8} 
-            autoComplete={signup ? 'new-password' : 'current-password'} 
-            required 
+          <input
+            type="password"
+            name="password"
+            minLength={8}
+            autoComplete={signup ? 'new-password' : 'current-password'}
+            required
           />
         </label>
         {message && <p role="status">{message}</p>}
@@ -98,9 +83,12 @@ export function Auth({ client }: AuthProps): ReactElement {
           {busy ? 'Working…' : signup ? 'Create account' : 'Sign in'}
         </button>
       </form>
-      <button 
-        className="text-button" 
-        onClick={(): void => { setSignup(!signup); setMessage(''); }}
+      <button
+        className="text-button"
+        onClick={(): void => {
+          setSignup(!signup);
+          setMessage('');
+        }}
       >
         {signup ? 'Already have an account? Sign in' : 'New here? Create an account'}
       </button>

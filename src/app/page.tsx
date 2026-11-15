@@ -1,3 +1,6 @@
 import type { ReactElement } from 'react';
-import { ArchiveApp } from '@/components/archive-app';
-export default function Home(): ReactElement { return <ArchiveApp />; }
+import { ArchiveRoot } from './archive-root';
+
+export default function Home(): ReactElement {
+  return <ArchiveRoot />;
+}

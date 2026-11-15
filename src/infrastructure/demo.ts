@@ -1,65 +1,254 @@
-import { ArchiveError, eventSchema, personSchema, type ArchiveEvent, type ArchiveRecord, type ArchiveRepositories, type ArchiveSnapshot, type Attendance, type EventInput, type Person, type PersonInput, type Repository } from '@/domain/archive';
-import { generateInviteCode, profileNameSchema, rsvpStatusSchema, TBELLINI_COMMUNITY_ID, type CommunityMembership, type EventRsvp, type RsvpStatus, type UserProfile, type UserTag } from '@/domain/community';
-import { DemoStore, DEMO_USERS, type StoragePort } from './demo-store';
-export { seedArchive, DEMO_USERS, DEMO_STORAGE_KEY, type StoragePort } from './demo-store';
-class DemoRepository<T extends ArchiveRecord, Input> implements Repository<T, Input> {
-  constructor(private readonly store: DemoStore, private readonly owner: string, private readonly collection: 'events' | 'people', private readonly records: (snapshot: ArchiveSnapshot) => T[], private readonly assemble: (input: Input, base: ArchiveRecord) => T) {}
-  async list(): Promise<T[]> { return this.records(this.store.read()).filter((record): boolean => this.collection === 'events' || record.ownerId === this.owner); }
-  async get(id: string): Promise<T | null> { return (await this.list()).find((item): boolean => item.id === id) ?? null; }
-  private async owned(id: string): Promise<T> { const record = await this.get(id); if (!record) throw new ArchiveError('This record no longer exists.'); if (record.ownerId !== this.owner) throw new ArchiveError('Only the author can change this record.'); return record; }
+import {
+  ArchiveError,
+  eventInputSchema,
+  personInputSchema,
+  tagKey,
+  type ArchiveEvent,
+  type EventInput,
+  type EventPersonTag,
+  type Person,
+  type PersonInput,
+} from '@/domain/archive';
+import { generateInviteCode, profileNameSchema, type EventRsvp, type RsvpStatus, type UserProfile } from '@/domain/members';
+import type {
+  ArchiveRepositories,
+  InvitationRepository,
+  MemberRepository,
+  Repository,
+  RsvpRepository,
+  TagRepository,
+} from '@/domain/ports';
+import {
+  ARCHIVE_MESSAGES,
+  requireCreator,
+  requireFound,
+  requireRsvpTarget,
+  requireTaggable,
+} from '@/domain/rules';
+import type { ArchiveSnapshot } from '@/domain/snapshot';
+import { DEMO_USERS } from './demo-seed';
+import { DemoStore, type StoragePort } from './demo-store';
+
+export { DEMO_USERS, seedArchive } from './demo-seed';
+export { DEMO_STORAGE_KEY } from './demo-migration';
+export { DemoAuth } from './demo-auth';
+export type { StoragePort } from './demo-store';
+
+interface RecordMeta {
+  id: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  provenance: 'manual';
+}
+interface Stored {
+  id: string;
+  createdBy: string | null;
+  createdAt: string;
+}
+
+/** Shared by events and people: everyone reads, only the creator writes. */
+abstract class DemoRecords<T extends Stored, Input> implements Repository<T, Input> {
+  constructor(
+    protected readonly store: DemoStore,
+    protected readonly userId: string,
+  ) {}
+  protected abstract records(snapshot: ArchiveSnapshot): T[];
+  protected abstract replace(snapshot: ArchiveSnapshot, records: T[]): void;
+  protected abstract build(input: Input, meta: RecordMeta, previous: T | null): T;
+  /** Removes everything that points at the removed record. */
+  protected abstract cascade(snapshot: ArchiveSnapshot, id: string): void;
+
+  async list(): Promise<T[]> {
+    return this.records(this.store.read());
+  }
+
+  async get(id: string): Promise<T | null> {
+    return this.records(this.store.read()).find((record): boolean => record.id === id) ?? null;
+  }
+
+  private async owned(id: string): Promise<T> {
+    const record = requireFound(await this.get(id), ARCHIVE_MESSAGES.recordMissing);
+    requireCreator(record, this.userId);
+    return record;
+  }
+
   async create(input: Input): Promise<T> {
     const now = new Date().toISOString();
-    const item = this.assemble(input, { id: crypto.randomUUID(), ownerId: this.owner, createdAt: now, updatedAt: now, visibility: this.collection === 'events' ? 'community' : 'private', provenance: 'manual' });
-    const data = this.store.read(); this.records(data).push(item); this.store.write(data); return item;
+    const meta: RecordMeta = {
+      id: crypto.randomUUID(),
+      createdBy: this.userId,
+      createdAt: now,
+      updatedAt: now,
+      provenance: 'manual',
+    };
+    const item = this.build(input, meta, null);
+    const data = this.store.read();
+    this.records(data).push(item);
+    this.store.write(data);
+    return item;
   }
+
   async update(id: string, input: Input): Promise<T> {
     const previous = await this.owned(id);
-    const item = this.assemble(input, { ...previous, updatedAt: new Date().toISOString() });
-    const data = this.store.read(); const records = this.records(data);
-    records[records.findIndex((record): boolean => record.id === id)] = item; this.store.write(data); return item;
+    const meta: RecordMeta = {
+      id,
+      createdBy: this.userId,
+      createdAt: previous.createdAt,
+      updatedAt: new Date().toISOString(),
+      provenance: 'manual',
+    };
+    const item = this.build(input, meta, previous);
+    const data = this.store.read();
+    this.replace(data, this.records(data).map((record): T => (record.id === id ? item : record)));
+    this.store.write(data);
+    return item;
   }
+
   async remove(id: string): Promise<void> {
-    await this.owned(id); const data = this.store.read();
-    if (this.collection === 'events') { data.events = data.events.filter((item): boolean => item.id !== id); data.attendance = data.attendance.filter((item): boolean => item.eventId !== id); data.tags = data.tags.filter((tag): boolean => tag.eventId !== id); data.rsvps = data.rsvps.filter((rsvp): boolean => rsvp.eventId !== id); }
-    else { data.people = data.people.filter((item): boolean => item.id !== id); data.attendance = data.attendance.filter((item): boolean => item.personId !== id); }
+    await this.owned(id);
+    const data = this.store.read();
+    this.replace(data, this.records(data).filter((record): boolean => record.id !== id));
+    this.cascade(data, id);
     this.store.write(data);
   }
 }
-export function resetDemoStorage(storage: StoragePort): void { new DemoStore(storage).reset(); }
-export function createDemoRepositories(storage: StoragePort, userId: string = DEMO_USERS[0]): ArchiveRepositories & { reset(): void } {
+
+class DemoEvents extends DemoRecords<ArchiveEvent, EventInput> {
+  protected records(snapshot: ArchiveSnapshot): ArchiveEvent[] {
+    return snapshot.events;
+  }
+  protected replace(snapshot: ArchiveSnapshot, records: ArchiveEvent[]): void {
+    snapshot.events = records;
+  }
+  protected build(input: EventInput, meta: RecordMeta): ArchiveEvent {
+    return { ...meta, ...eventInputSchema.parse(input) };
+  }
+  protected cascade(snapshot: ArchiveSnapshot, id: string): void {
+    snapshot.tags = snapshot.tags.filter((tag): boolean => tag.eventId !== id);
+    snapshot.rsvps = snapshot.rsvps.filter((rsvp): boolean => rsvp.eventId !== id);
+  }
+}
+
+class DemoPeople extends DemoRecords<Person, PersonInput> {
+  protected records(snapshot: ArchiveSnapshot): Person[] {
+    return snapshot.people;
+  }
+  protected replace(snapshot: ArchiveSnapshot, records: Person[]): void {
+    snapshot.people = records;
+  }
+  protected build(input: PersonInput, meta: RecordMeta, previous: Person | null): Person {
+    return { ...meta, memberId: previous?.memberId ?? null, ...personInputSchema.parse(input) };
+  }
+  protected cascade(snapshot: ArchiveSnapshot, id: string): void {
+    snapshot.tags = snapshot.tags.filter((tag): boolean => tag.personId !== id);
+  }
+}
+
+class DemoTags implements TagRepository {
+  constructor(
+    private readonly store: DemoStore,
+    private readonly userId: string,
+  ) {}
+
+  async list(): Promise<EventPersonTag[]> {
+    return this.store.read().tags;
+  }
+
+  async add(eventId: string, personId: string): Promise<void> {
+    const data = this.store.read();
+    requireTaggable(
+      data.events.find((event): boolean => event.id === eventId),
+      data.people.find((person): boolean => person.id === personId),
+      this.userId,
+    );
+    if (data.tags.some((tag): boolean => tagKey(tag) === tagKey({ eventId, personId }))) return;
+    data.tags.push({ eventId, personId, taggedBy: this.userId, createdAt: new Date().toISOString() });
+    this.store.write(data);
+  }
+
+  async remove(eventId: string, personId: string): Promise<void> {
+    const data = this.store.read();
+    const event = requireFound(data.events.find((item): boolean => item.id === eventId), ARCHIVE_MESSAGES.eventMissing);
+    requireCreator(event, this.userId);
+    data.tags = data.tags.filter((tag): boolean => tagKey(tag) !== tagKey({ eventId, personId }));
+    this.store.write(data);
+  }
+}
+
+class DemoRsvps implements RsvpRepository {
+  constructor(
+    private readonly store: DemoStore,
+    private readonly userId: string,
+  ) {}
+
+  async list(): Promise<EventRsvp[]> {
+    return this.store.read().rsvps;
+  }
+
+  async respond(eventId: string, status: RsvpStatus | null): Promise<void> {
+    const data = this.store.read();
+    requireRsvpTarget(data.events.find((event): boolean => event.id === eventId));
+    const isMine = (rsvp: EventRsvp): boolean => rsvp.eventId === eventId && rsvp.userId === this.userId;
+    const previous = data.rsvps.find(isMine);
+    data.rsvps = data.rsvps.filter((rsvp): boolean => !isMine(rsvp));
+    if (status) {
+      const now = new Date().toISOString();
+      data.rsvps.push({ eventId, userId: this.userId, status, createdAt: previous?.createdAt ?? now, updatedAt: now });
+    }
+    this.store.write(data);
+  }
+}
+
+class DemoMembers implements MemberRepository {
+  constructor(
+    private readonly store: DemoStore,
+    private readonly userId: string,
+  ) {}
+
+  async list(): Promise<UserProfile[]> {
+    return this.store.read().members;
+  }
+
+  async updateProfile(displayName: string): Promise<UserProfile> {
+    const data = this.store.read();
+    const profile = requireFound(
+      data.members.find((member): boolean => member.id === this.userId),
+      ARCHIVE_MESSAGES.profileNotReady,
+    );
+    profile.displayName = profileNameSchema.parse(displayName);
+    profile.updatedAt = new Date().toISOString();
+    this.store.write(data);
+    return profile;
+  }
+}
+
+class DemoInvitations implements InvitationRepository {
+  async generate(): Promise<string> {
+    return generateInviteCode();
+  }
+}
+
+export function resetDemoStorage(storage: StoragePort): void {
+  new DemoStore(storage).reset();
+}
+
+/** Builds the demo repositories that act for one demo member. */
+export function createDemoRepositories(
+  storage: StoragePort,
+  userId: string = DEMO_USERS[0],
+): ArchiveRepositories {
   const store = new DemoStore(storage);
-  const requireMember = (data: ArchiveSnapshot, id: string): void => { if (!data.memberships.some((membership): boolean => membership.userId === id)) throw new ArchiveError('TBellini membership is required.'); };
-  const requireEvent = (data: ArchiveSnapshot, id: string, authored = false): ArchiveEvent => { const event = data.events.find((item): boolean => item.id === id); if (!event) throw new ArchiveError('Event not found.'); if (authored && event.ownerId !== userId) throw new ArchiveError('Only the event author can change this event.'); return event; };
-  requireMember(store.read(), userId);
+  if (!store.read().members.some((member): boolean => member.id === userId)) {
+    throw new ArchiveError(ARCHIVE_MESSAGES.profileNotReady);
+  }
   return {
     currentUserId: userId,
-    events: new DemoRepository<ArchiveEvent, EventInput>(store, userId, 'events', (snapshot): ArchiveEvent[] => snapshot.events, (input, base): ArchiveEvent => ({ ...base, visibility: 'community', communityId: TBELLINI_COMMUNITY_ID, ...eventSchema.parse(input) })),
-    people: new DemoRepository<Person, PersonInput>(store, userId, 'people', (snapshot): Person[] => snapshot.people, (input, base): Person => ({ ...base, visibility: 'private', ...personSchema.parse(input) })),
-    attendance: {
-      async list(): Promise<Attendance[]> { return store.read().attendance.filter((link): boolean => link.ownerId === userId); },
-      async add(eventId: string, personId: string): Promise<void> {
-        const data = store.read(); requireEvent(data, eventId, true);
-        if (!data.people.some((person): boolean => person.id === personId && person.ownerId === userId)) throw new ArchiveError('Person not found.');
-        if (!data.attendance.some((link): boolean => link.eventId === eventId && link.personId === personId)) { data.attendance.push({ eventId, personId, ownerId: userId, createdAt: new Date().toISOString() }); store.write(data); }
-      },
-      async remove(eventId: string, personId: string): Promise<void> { const data = store.read(); requireEvent(data, eventId, true); data.attendance = data.attendance.filter((link): boolean => !(link.eventId === eventId && link.personId === personId && link.ownerId === userId)); store.write(data); },
-    },
-    community: {
-      async members(): Promise<UserProfile[]> { return store.read().members; },
-      async memberships(): Promise<CommunityMembership[]> { return store.read().memberships; },
-      async tags(): Promise<UserTag[]> { return store.read().tags; },
-      async rsvps(): Promise<EventRsvp[]> { return store.read().rsvps; },
-      async tag(eventId: string, targetUserId: string): Promise<void> { const data = store.read(); requireEvent(data, eventId, true); requireMember(data, targetUserId); if (!data.tags.some((tag): boolean => tag.eventId === eventId && tag.userId === targetUserId)) { data.tags.push({ eventId, userId: targetUserId, communityId: TBELLINI_COMMUNITY_ID, taggedBy: userId, createdAt: new Date().toISOString() }); store.write(data); } },
-      async untag(eventId: string, targetUserId: string): Promise<void> { const data = store.read(); requireEvent(data, eventId, true); data.tags = data.tags.filter((tag): boolean => !(tag.eventId === eventId && tag.userId === targetUserId)); store.write(data); },
-      async respond(eventId: string, status: RsvpStatus | null): Promise<void> {
-        status = rsvpStatusSchema.nullable().parse(status);
-        const data = store.read(); requireEvent(data, eventId); requireMember(data, userId);
-        const previous = data.rsvps.find((rsvp): boolean => rsvp.eventId === eventId && rsvp.userId === userId);
-        data.rsvps = data.rsvps.filter((rsvp): boolean => !(rsvp.eventId === eventId && rsvp.userId === userId));
-        if (status) { const now = new Date().toISOString(); data.rsvps.push({ eventId, userId, communityId: TBELLINI_COMMUNITY_ID, status, createdAt: previous?.createdAt ?? now, updatedAt: now }); } store.write(data);
-      },
-      async updateProfile(displayName: string): Promise<UserProfile> { const data = store.read(); const profile = data.members.find((member): boolean => member.id === userId); if (!profile) throw new ArchiveError('Member not found.'); profile.displayName = profileNameSchema.parse(displayName); profile.updatedAt = new Date().toISOString(); store.write(data); return profile; },
-      async generateInvitation(): Promise<string> { return generateInviteCode(); },
-    }, reset(): void { store.reset(); },
+    events: new DemoEvents(store, userId),
+    people: new DemoPeople(store, userId),
+    tags: new DemoTags(store, userId),
+    rsvps: new DemoRsvps(store, userId),
+    members: new DemoMembers(store, userId),
+    invitations: new DemoInvitations(),
   };
 }

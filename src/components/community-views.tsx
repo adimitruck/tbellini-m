@@ -1,14 +1,16 @@
 'use client';
 import { useState, type FormEvent, type ReactElement } from 'react';
-import { type ArchiveEvent, type ArchiveSnapshot } from '@/domain/archive';
+import type { ArchiveEvent } from '@/domain/archive';
+import { personOfMember, type ArchiveSnapshot } from '@/domain/snapshot';
 import { formatEventTime } from '@/domain/time';
 export interface EventListProps { snapshot: ArchiveSnapshot; currentUserId: string; onSelect(event: ArchiveEvent): void }
 export function EventList({ snapshot, currentUserId, onSelect }: EventListProps): ReactElement {
   return <><div className="list-meta"><span>{snapshot.events.length} shared community events</span><span>Ordered by event date</span></div><div className="event-list">
     {snapshot.events.map((event): ReactElement => {
-      const author = snapshot.members.find((member): boolean => member.id === event.ownerId)?.displayName ?? 'TBellini member';
+      const author = snapshot.members.find((member): boolean => member.id === event.createdBy)?.displayName ?? 'TBellini member';
       const rsvp = snapshot.rsvps.find((response): boolean => response.eventId === event.id && response.userId === currentUserId)?.status;
-      const tagged = snapshot.tags.some((tag): boolean => tag.eventId === event.id && tag.userId === currentUserId);
+      const myPersonId = personOfMember(snapshot, currentUserId)?.id;
+      const tagged = snapshot.tags.some((tag): boolean => tag.eventId === event.id && tag.personId === myPersonId);
       return <button key={event.id} className="event-card" onClick={(): void => onSelect(event)}><div className="date-tile"><span>{new Intl.DateTimeFormat('en-US', { timeZone: event.timezone, month: 'short' }).format(new Date(event.startsAt))}</span><strong>{new Intl.DateTimeFormat('en-US', { timeZone: event.timezone, day: 'numeric' }).format(new Date(event.startsAt))}</strong></div><div className="event-summary"><h2>{event.title}</h2><p>{formatEventTime(event.startsAt, event.timezone)} · {event.location || 'Place not recorded'}</p><span>By {author}{rsvp ? ` · You’re ${rsvp === 'going' ? 'Going' : 'Interested'}` : ' · No RSVP'}{tagged ? ' · You’re tagged' : ''}</span></div><span className="card-arrow" aria-hidden="true">↗</span></button>;
     })}
     {!snapshot.events.length && <div className="empty-state"><h2>The next moment starts here.</h2><p>Create the first event for the TBellini community.</p></div>}
@@ -50,5 +52,5 @@ export function Members({ snapshot, currentUserId, onSaveProfile, onGenerateInvi
       </div>
     )}
   </div>
-  <p className="muted">Every signed-up user is automatically a member of the TBellini community. User accounts are separate from your private archive people.</p><div className="people-grid">{snapshot.members.map((member): ReactElement => <article className="person-card" key={member.id}><div className="avatar">{member.displayName[0]}</div><h2>{member.displayName}{member.id === currentUserId ? ' (you)' : ''}</h2><p className="small muted">TBellini member</p><p className="small">{snapshot.events.filter((event): boolean => event.ownerId === member.id).length} events created</p></article>)}</div></>;
+  <p className="muted">Every signed-up user is automatically a member of the TBellini community. User accounts are separate from your private archive people.</p><div className="people-grid">{snapshot.members.map((member): ReactElement => <article className="person-card" key={member.id}><div className="avatar">{member.displayName[0]}</div><h2>{member.displayName}{member.id === currentUserId ? ' (you)' : ''}</h2><p className="small muted">TBellini member</p><p className="small">{snapshot.events.filter((event): boolean => event.createdBy === member.id).length} events created</p></article>)}</div></>;
 }
