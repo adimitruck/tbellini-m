@@ -5,6 +5,8 @@
  */
 export const INVITE_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 export const INVITE_CODE_PATTERN = /^[A-Z0-9-]{8,12}$/;
+/** HTML pattern attribute (browsers compile it with the v flag, so the hyphen is escaped). */
+export const INVITE_CODE_INPUT_PATTERN = '[A-Za-z0-9\\-]{8,12}';
 
 export const INVITE_EXPIRY_DAYS = { min: 1, max: 30, default: 7 } as const;
 

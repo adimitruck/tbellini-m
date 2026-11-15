@@ -1,5 +1,6 @@
 'use client';
 import { useState, type FormEvent, type ReactElement } from 'react';
+import { INVITE_CODE_INPUT_PATTERN } from '@/domain/invite-code';
 import type { AuthPort } from '@/domain/ports';
 
 export interface AuthProps {
@@ -58,7 +59,7 @@ export function Auth({ auth }: AuthProps): ReactElement {
               autoComplete="off"
               maxLength={12}
               minLength={8}
-              pattern="[A-Za-z0-9-]{8,12}"
+              pattern={INVITE_CODE_INPUT_PATTERN}
               placeholder="ABCD-1234"
               required
             />
