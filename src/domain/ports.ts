@@ -65,6 +65,7 @@ export interface Credentials {
 export interface SignUpInput extends Credentials {
   displayName: string;
   inviteCode: string;
+  redirectTo?: string;
 }
 export type SignUpResult = 'signed-in' | 'confirmation-required';
 

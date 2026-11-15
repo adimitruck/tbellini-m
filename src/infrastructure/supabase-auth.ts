@@ -21,7 +21,7 @@ export interface SupabaseAuthApi {
   signUp(input: {
     email: string;
     password: string;
-    options: { data: Record<string, string> };
+    options: { data: Record<string, string>; emailRedirectTo?: string };
   }): Promise<{ data: { session: object | null }; error: AuthFailure | null }>;
   signOut(): Promise<{ error: AuthFailure | null }>;
   onAuthStateChange(callback: () => void): { data: { subscription: { unsubscribe(): void } } };
@@ -75,6 +75,7 @@ export class SupabaseAuth implements AuthPort {
           [SIGN_UP_METADATA.displayName]: valid.displayName,
           [SIGN_UP_METADATA.inviteCode]: valid.inviteCode,
         },
+        ...(valid.redirectTo ? { emailRedirectTo: valid.redirectTo } : {}),
       },
     });
     if (error) {

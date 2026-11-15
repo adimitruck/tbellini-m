@@ -98,6 +98,20 @@ describe('supabase sign-up', (): void => {
     expect(api.signUps).toEqual([{ display_name: 'New Member', invite_code: VALID_INVITE }]);
   });
 
+  it('sends the caller origin as emailRedirectTo and omits it when absent', async (): Promise<void> => {
+    const api = new FakeAuth();
+    const auth = new SupabaseAuth(api);
+    await auth.signUp({ ...input, redirectTo: 'https://preview-abc.vercel.app' });
+    await auth.signUp(input);
+    expect(api.redirects).toEqual(['https://preview-abc.vercel.app', undefined]);
+  });
+
+  it('rejects a redirect that is not a URL before calling Auth', async (): Promise<void> => {
+    const api = new FakeAuth();
+    await expect(new SupabaseAuth(api).signUp({ ...input, redirectTo: 'not a url' })).rejects.toBeInstanceOf(ArchiveError);
+    expect(api.signUps).toHaveLength(0);
+  });
+
   it('reports a session when the project confirms emails automatically', async (): Promise<void> => {
     const api = new FakeAuth();
     api.autoConfirm = true;

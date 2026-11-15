@@ -39,4 +39,6 @@ export const signUpSchema = z.object({
   password: z.string().min(8, 'Use at least 8 characters for your password.'),
   displayName: profileNameSchema,
   inviteCode: inviteCodeSchema,
+  /** Where the confirmation email link returns to (the page's own origin); the Site URL applies when absent. */
+  redirectTo: z.url().optional(),
 });

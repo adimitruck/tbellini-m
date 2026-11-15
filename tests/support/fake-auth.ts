@@ -12,6 +12,8 @@ interface Account {
 export class FakeAuth implements SupabaseAuthApi {
   readonly accounts = new Map<string, Account>();
   readonly signUps: Record<string, string>[] = [];
+  /** The emailRedirectTo of each signup, undefined when none was sent. */
+  readonly redirects: (string | undefined)[] = [];
   /** When true a successful signup returns a session; otherwise the email must be confirmed first. */
   autoConfirm = false;
   private session: string | null = null;
@@ -40,11 +42,16 @@ export class FakeAuth implements SupabaseAuthApi {
     return { error: null };
   }
 
-  async signUp(input: { email: string; password: string; options: { data: Record<string, string> } }): Promise<{
+  async signUp(input: {
+    email: string;
+    password: string;
+    options: { data: Record<string, string>; emailRedirectTo?: string };
+  }): Promise<{
     data: { session: object | null };
     error: { name: string; message: string } | null;
   }> {
     this.signUps.push(input.options.data);
+    this.redirects.push(input.options.emailRedirectTo);
     if (input.options.data[SIGN_UP_METADATA.inviteCode] !== VALID_INVITE) {
       return { data: { session: null }, error: { name: 'AuthApiError', message: SIGN_UP_REJECTED_MARKER } };
     }

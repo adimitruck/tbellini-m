@@ -27,6 +27,7 @@ export function Auth({ auth }: AuthProps): ReactElement {
           ...credentials,
           displayName: field('displayName'),
           inviteCode: field('inviteCode'),
+          redirectTo: window.location.origin,
         });
         if (result === 'confirmation-required') setMessage(CHECK_EMAIL);
       } else {
