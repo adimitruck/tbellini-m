@@ -14,7 +14,7 @@ Read `AGENTS.md` and `PROJECT_MEMORY.md` first, then `docs/PROJECT_HANDOFF.md`, 
 ## Review constraints
 
 - Supabase remains authoritative; Neo4j remains an asynchronous projection.
-- Events are shared within the fixed TBellini community; archive people remain private. Event author manages tags, each member manages only their own RSVP. RLS, immutable identity triggers and compound membership/event foreign keys enforce these boundaries. Never merge registered profiles with private people.
+- There is one shared space: any signed-in member with a profile can read everything, and only the creator edits or deletes a record. Each member manages only their own RSVP, and tags never imply an RSVP. RLS and immutable identity triggers enforce these boundaries. A Person without an account is linked to a member only through an invitation that names it or a creator-confirmed claim.
 - Keep all `NEXT_PUBLIC_*` variables non-secret. Service-role/Neo4j/Cloudflare tokens never enter browser code.
 - Preserve durable outbox acknowledgements after successful graph writes only. Keep tenant keys and deletion handling in every graph change.
 - Demo data belongs to the current browser. Do not imply it is backed up or silently send it to a cloud account.

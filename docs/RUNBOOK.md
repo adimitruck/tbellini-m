@@ -2,7 +2,27 @@
 
 ## Local app and Supabase
 
-The declared minimum is Node.js 22; CI and the Vercel setup below select 22. `npm ci`, copy `.env.example` to `.env.local`, and `npm run dev`. Demo mode needs no cloud accounts. The example file explicitly selects demo; production requires an explicit mode. Selecting Supabase mode without its public configuration must fail visibly. Old local v1 demo data is automatically converted to v2 when v2 is absent. There is no demo-to-Supabase import; switching provider does not upload browser records.
+## Task runner (primary interface)
+
+The `justfile` is the primary interface; run `just` to list recipes (install [just](https://github.com/casey/just)). It needs Node.js 22.18 or newer (`engines` in `package.json`) and npm; recipes that touch the local database also need a running Docker-compatible runtime and use the pinned Supabase CLI through `npx`. Recipes that act on the hosted project or graph refuse to run unless called with `confirm=hosted`.
+
+| Recipe | Does |
+| --- | --- |
+| `just setup` | `npm ci`; creates `.env.local` from `.env.example` if missing |
+| `just dev` | App in demo mode (no backend) |
+| `just dev-supabase` | Starts the local Supabase stack and runs the app against it; keys stay in the process environment |
+| `just lint`, `typecheck`, `test`, `build`, `start` | The matching npm scripts; `just check` runs lint, typecheck, test and build |
+| `just db-start`, `db-stop`, `db-reset`, `db-test`, `db-diff` | Local Supabase stack, reset (destroys local data only), pgTAP tests, schema diff; `just ci` is `check` plus reset and test |
+| `just seed-invite-local` | Creates an invitation on the local stack |
+| `just seed-invite confirm=hosted` | Creates the first invitation on the hosted project (see below) |
+| `just db-push confirm=hosted` | Pushes migrations to the linked hosted project |
+| `just graph-sync confirm=hosted`, `replay-outbox confirm=hosted` | Project the outbox into Neo4j using `.env.local` |
+| `just health` | GETs the running app's `/api/health` |
+| `just clean` | Removes build output and caches |
+
+## Local app and Supabase
+
+The declared minimum is Node.js 22.18; CI and the Vercel setup below select Node 22. `just setup`, then `just dev` (or `npm ci`, copy `.env.example` to `.env.local`, `npm run dev`). Demo mode needs no cloud accounts. The example file explicitly selects demo; production requires an explicit mode. Selecting Supabase mode without its public configuration must fail visibly. Demo data is stored under `tbellini.community.v3`; older v2 and v1 browser data is converted automatically when the newer key is absent. There is no demo-to-Supabase import; switching provider does not upload browser records.
 
 For local authenticated storage, install the [Supabase CLI](https://supabase.com/docs/guides/local-development) and have a Docker-compatible runtime already running. Docker is optional for app development; no installation is performed by this repository.
 
@@ -13,7 +33,7 @@ npx --yes supabase@2.119.0 test db
 npx --yes supabase@2.119.0 stop
 ```
 
-`db reset` destroys the local development database contents; never use reset against a hosted production archive. Before stopping, obtain local public URL and publishable/anon key from `npx --yes supabase@2.119.0 status`. The CLI prints local development credentials; copy only the required values into ignored `.env.local`. For continued local authenticated app work, leave the stack running and stop it when finished. Use `API_URL` as `NEXT_PUBLIC_SUPABASE_URL` and `PUBLISHABLE_KEY` (or the local legacy `ANON_KEY`) as `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, set `NEXT_PUBLIC_ARCHIVE_MODE=supabase`, and restart the app. Local confirmation emails are available through the mail viewer printed by `supabase start`. The SQL tests switch to the authenticated role and exercise owner isolation, cross-owner foreign keys, and inaccessible service tables.
+`db reset` destroys the local development database contents; never use reset against a hosted production archive. Before stopping, obtain local public URL and publishable/anon key from `npx --yes supabase@2.119.0 status`. The CLI prints local development credentials; copy only the required values into ignored `.env.local`. For continued local authenticated app work, leave the stack running and stop it when finished. Use `API_URL` as `NEXT_PUBLIC_SUPABASE_URL` and `PUBLISHABLE_KEY` (or the local legacy `ANON_KEY`) as `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, set `NEXT_PUBLIC_ARCHIVE_MODE=supabase`, and restart the app. Local confirmation emails are available through the mail viewer printed by `supabase start`. `just dev-supabase` does the status lookup and environment wiring for you. The SQL tests switch to the authenticated role and exercise signed-in-only reads, creator-only writes, shared people and tags, claims, invitations, and inaccessible service tables.
 
 For hosted Supabase, create a project in its dashboard, review the migration, then link the CLI and apply it:
 
@@ -24,7 +44,19 @@ npx --yes supabase@2.119.0 db push --dry-run
 npx --yes supabase@2.119.0 db push
 ```
 
-Set Auth site URL to the deployed app and allow the intended app/preview redirect URLs. The current UI uses invite-only email/password signup/sign-in, with email confirmation followed by manual sign-in; no application callback route or OAuth/magic-link flow is implemented. Configure email delivery/confirmation for production. Use the dashboard's publishable key for the browser; use a separate service-role key exclusively for the graph runner. Review backup retention and restore policy before storing real archives. [Migrations](https://supabase.com/docs/guides/deployment/database-migrations), [RLS](https://supabase.com/docs/guides/database/postgres/row-level-security), and [database tests](https://supabase.com/docs/guides/database/testing) are the upstream references.
+Hosted Auth settings are dashboard values; `db push` does not apply them, and `supabase/config.toml` governs only the local stack. In Dashboard > Authentication set:
+
+| Setting | Value |
+| --- | --- |
+| Site URL | The production URL. Confirmation emails link to it; the app passes no `emailRedirectTo` |
+| Redirect URLs allow-list | The production URL and the Vercel preview pattern `https://*-<team>.vercel.app/**` (this project's team is `queen-of-hearts`; confirm the exact preview host in Vercel) |
+| Email provider | Enabled |
+| Confirm email | On (matches `enable_confirmations = true` locally) |
+| Signups | Enabled. The invite gate is the `join_tbellini()` database trigger, so disabling signups would break invited signup |
+| SMTP | Custom SMTP configured. The built-in sender is heavily rate-limited and unusable for real invites |
+| Minimum password length | Set deliberately (a value is not fixed by this repository) |
+
+After a domain change (Cloudflare DNS), update the Site URL and allow-list again. These values have never been applied to a hosted project; verify with a signup whose confirmation link must land on the production URL. The current UI uses invite-only email/password signup/sign-in, with email confirmation followed by manual sign-in; no application callback route or OAuth/magic-link flow is implemented. Use the dashboard's publishable key for the browser; use a separate service-role key exclusively for the graph runner. Review backup retention and restore policy before storing real archives. [Migrations](https://supabase.com/docs/guides/deployment/database-migrations), [RLS](https://supabase.com/docs/guides/database/postgres/row-level-security), and [database tests](https://supabase.com/docs/guides/database/testing) are the upstream references.
 
 ## Configuration ownership
 
@@ -45,27 +77,39 @@ Do not add credentials to tracked files. `.env.example` contains placeholders, a
 
 ## Vercel and Cloudflare DNS
 
-Import this GitHub repository into Vercel using the Next.js preset, Node.js 22, `npm run build`, and the default output directory. Set the three `NEXT_PUBLIC_*` app variables per environment before building. Use a separate Supabase development/preview project when preview deployments need durable data. Vercel Git integration supplies previews and production deployment; there is no duplicate Vercel deploy workflow.
+Import this GitHub repository into Vercel using the Next.js preset, Node.js 22 (`engines` requires 22.18 or newer; there is no `.nvmrc`, so set this in the project settings), `npm run build`, and the default output directory. Set `NEXT_PUBLIC_ARCHIVE_MODE=supabase`, `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` per environment before the first build: they are inlined at build time, so changing them later needs a rebuild, and a build without them succeeds but reports "unconfigured" (CI builds this way, so it does not prove a supabase-mode build). Do not set the service-role key on Vercel. Use a separate Supabase development/preview project when preview deployments need durable data. Vercel Git integration supplies previews and production deployment; there is no duplicate Vercel deploy workflow.
 
 Add the custom domain in Vercel and apply the exact DNS records it provides in Cloudflare. Begin with DNS-only records. Adding Cloudflare proxying requires reviewing [Vercel's Cloudflare integration guidance](https://vercel.com/docs/integrations/external-platforms/cloudflare), cache behavior and TLS; never cache authenticated archive responses. Git integration guidance: [Vercel Git deployments](https://vercel.com/docs/deployments/git).
 
-## Forward community migration
+## Migrations
 
-`20261006000002_community.sql` adds the fixed TBellini community, registered profiles, automatic signup membership, registered-user tags and RSVP. It backfills existing accounts and changes existing events to community visibility. Private people/notes and historical attendance stay owner scoped. Review this visibility change before applying it to an existing hosted archive; deploy the matching app and forward migration together. Do not rewrite the older applied migrations. Profiles use a valid provided display name or a neutral member label; email is never copied. Signup metadata never chooses community membership.
+`supabase/migrations/` holds five forward-only files; `db push` applies all of them to a hosted project in order:
 
-If replay jobs exist, stop them while applying this migration, then deploy the new projector before resuming. Older pending queue records are preserved; new snapshot records reproject profiles/events before private attendance. No invite/public access is added. Display name can be changed independently from private person records.
+1. `20261006000000_archive.sql`: events, people, attendance and the graph outbox.
+2. `20261006000001_graph_lock.sql`: the graph sync mutex.
+3. `20261006000002_community.sql`: the earlier community, membership, tag and RSVP model (superseded by 5).
+4. `20261006000003_invitations.sql`: invite-only signup.
+5. `20261017000000_shared_space.sql`: moves the schema to one shared space. Drops `communities`, `memberships`, `event_people`, `event_user_tags` and `is_community_member()`; adds shared Persons (`people.member_id`), `event_person_tags`, `person_claims`, `ensure_member_person`, `confirm_person_claim` and `invitations.person_id`; every signed-in profile reads everything and only creators write.
+
+Do not rewrite applied migrations; fix mistakes with a new forward migration. Its data-converting paths (Person backfill, conversion of `event_people` and `event_user_tags`) have not been tested on a non-empty database; a fresh hosted project has no data, so this only matters for an existing archive. Deploy the matching app and migration together. If graph replay jobs exist, stop them while applying a migration, and rebuild the graph as described under Neo4j projection.
 
 ## Invite-only signup and the first account
 
-`20261006000003_invitations.sql` makes registration invite-only. Every signup must carry an unused, unexpired code; the signup trigger consumes it atomically, so a code admits exactly one account. Signed-in members create codes from the TBellini users view, which calls the `create_invitation(expires_in_days)` RPC (1–30 days, default 7). Browsers cannot read or write the `invitations` table.
+`20261006000003_invitations.sql` makes registration invite-only. Every signup must carry an unused, unexpired code; the signup trigger consumes it atomically, so a code admits exactly one account. Signed-in members create codes from the invite panel in the Members view, which calls the `create_invitation(expires_in_days, for_person)` RPC (1-30 days, default 7; `for_person` optionally names an unlinked Person the invitee will become). Browsers cannot read or write the `invitations` table.
 
-Nobody can sign up before a code exists, so seed the first one in the privileged SQL editor (or `psql` locally), then sign up with it:
+Nobody can sign up before a code exists, so seed the first one with the service role. Put `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` of the hosted project in `.env.local` (never commit it), then:
+
+```sh
+just seed-invite confirm=hosted
+```
+
+It inserts one invitation with no creator and prints the code and expiry; the key is never printed. Optional environment overrides: `INVITE_CODE` (8-12 characters of A-Z, 0-9 or hyphen; a random code is generated when empty) and `INVITE_EXPIRY_DAYS` (1-30, default 7). Use `just seed-invite-local` for the local stack. Rollback: delete the row. Fallback without the script, in the privileged SQL editor:
 
 ```sql
 insert into public.invitations(code, expires_at) values ('ABCD-2345', now() + interval '7 days');
 ```
 
-Codes are 8–12 uppercase letters, digits or dashes; the signup form uppercases input. Inspect use with `select code, created_by, expires_at, used_at, used_by from public.invitations`. Demo mode generates random codes for display only; it has no signup flow to consume them.
+Codes are 8-12 uppercase letters, digits or dashes; the signup form uppercases input. Inspect use with `select code, created_by, expires_at, used_at, used_by from public.invitations`. Demo mode generates random codes for display only; it has no signup flow to consume them. After the first member signs up, that member invites the others.
 
 ## Neo4j projection
 
@@ -79,7 +123,7 @@ The runner installs `neo4j/constraints.cypher` automatically. The app remains av
 
 The projector acquires a database mutex that deliberately never expires. Normal success/failure attempts to release it independently of driver close. Cleanup errors are reported alongside the original failure. If a process is killed or disconnected during release, the next run fails safely. First confirm all sync runs have stopped, inspect `select * from public.graph_sync_lock`, and only then execute `delete from public.graph_sync_lock` in the privileged SQL editor. Never reset a lock while a runner might still be active. Failed rows are not acknowledged; fix the error and rerun. Error output should not expose secrets/payloads.
 
-For a full rebuild: stop all replay jobs and archive writes, back up Neo4j, remove only this app's `ArchiveEntity` nodes in the target database, set `graph_outbox.processed_at=null` through privileged SQL, and replay. Resume writes after validation. Outbox history must be retained for this procedure. Purging processed rows requires replacing replay with a snapshot/reconciliation strategy first. Sensitive titles are duplicated into Neo4j; its access/backup/deletion policy must match the private archive.
+Graph node keys changed with the shared-space model (`event:<id>`, `person:<id>`, `profile:<id>`, no owner or community prefix), so a graph built by the earlier projector must be wiped and fully replayed before use; a graph that has never been synced needs no wipe. The projector skips the retired `attendance` and `user_tag` outbox types with a logged warning. For a full rebuild: stop all replay jobs and archive writes, back up Neo4j, remove only this app's `ArchiveEntity` nodes in the target database, set `graph_outbox.processed_at=null` through privileged SQL, and replay. Resume writes after validation. Outbox history must be retained for this procedure. Purging processed rows requires replacing replay with a snapshot/reconciliation strategy first. Event titles and person names are duplicated into Neo4j; its access/backup/deletion policy must be at least as strict as the archive.
 
 ## Optional Cloudflare worker
 
@@ -91,7 +135,7 @@ For a full rebuild: stop all replay jobs and archive writes, back up Neo4j, remo
 
 `graph-sync.yml` and `cloudflare.yml` are manual dispatch only, opt-in, production-environment jobs with separate concurrency groups and `cancel-in-progress: false`. The graph runner also enforces a database mutex, so local/CI overlap fails. No workflow deploys Supabase migrations or Neo4j hosting, and none creates infrastructure. Apply reviewed database migrations through the operator procedure above. Vercel deploys via its Git integration.
 
-`GET /api/health` returns 200 when configured and 503 when mode/credentials/URL configuration are missing or invalid; it reports status/service/mode without secrets and does not probe Supabase, Auth or Neo4j availability. The optional worker's `GET /health` likewise checks its request handler only. Diagnose dependency failures through provider logs and the pending queue, not through a healthy static endpoint alone.
+`GET /api/health` returns 200 with status `ok` when configured, and 503 with `configuration_required` when mode/credentials/URL configuration are missing or invalid. In supabase mode it also sends a `HEAD /rest/v1/` ping to Supabase with the publishable key (3-second timeout) and returns 503 with status `unavailable` and reason `supabase_unreachable` when that fails. It reports status/service/mode without secrets and does not probe Auth or Neo4j availability. The optional worker's `GET /health` likewise checks its request handler only. Diagnose dependency failures through provider logs and the pending queue, not through a healthy static endpoint alone.
 
 ## Data refresh and failure states
 
@@ -99,6 +143,6 @@ The app fetches snapshots through browser adapters. Shared data is not realtime:
 
 ## Release and recovery checklist
 
-Run app validation, local migration replay and SQL tests. Smoke-test two authenticated members: shared event visibility, author-only corrections/deletion/tagging, each user's own Going/Interested/Clear controls, filtered My Calendar, private people isolation, timezone boundaries, reload and sign-out. Verify Neo4j retries and deletion in a staging instance. Inspect Vercel preview, keyboard navigation and mobile layout before production enablement. Neither unit tests nor demo mode verify hosted provider connectivity.
+Run app validation, local migration replay and SQL tests. Smoke-test two authenticated members: shared event visibility, author-only corrections/deletion/tagging, each user's own Going/Interested/Clear controls, filtered My Calendar, shared People with tagging and claiming, signed-out visitors seeing nothing, timezone boundaries, reload and sign-out. Verify Neo4j retries and deletion in a staging instance. Inspect Vercel preview, keyboard navigation and mobile layout before production enablement. Neither unit tests nor demo mode verify hosted provider connectivity.
 
 App rollback uses the prior Vercel deployment. Database migrations move forward: do not delete migration history or assume rolling back UI reverses schema/data. Correct a schema problem with a reviewed additive migration and verify backup restore independently. Monitor Vercel errors, Supabase/Auth failures, pending outbox count/oldest timestamp, sync mutex age, and Cloudflare worker logs. Never log private notes or credentials.

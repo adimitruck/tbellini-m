@@ -4,21 +4,21 @@
 
 ## M0 — Events & Calendar
 
-Sequence: **Record basic people + Create events → Add people to events → See my events → Calendar**. Details and corrections are part of M0. The explicit October 6 community correction adds registered profiles, author-managed user tags and own Going/Interested RSVP; it does not reintroduce a social feed.
+Sequence: **Record people + Create events → Tag people on events → See my events → Calendar**. Details and corrections are part of M0. M0 is one shared space for one group (decision of October 17, 2026; see [PROJECT_MEMORY.md](../PROJECT_MEMORY.md)): there is no community, membership or private data, and it does not reintroduce a social feed.
 
 | Capability | User outcome / acceptance |
 | --- | --- |
-| Basic people | Save a named private person and optional notes; edits persist after reload |
+| People | Save a named shared Person with optional notes, with or without an account; every signed-in member sees them; the creator edits or removes them |
 | Create events | Save title, valid start/end instants, timezone and optional context; invalid values show useful feedback |
-| Attendance | Add/remove an existing person to an event; duplicates and cross-owner links are impossible |
-| Community events | Every registered member sees shared events in time order; authors alone edit/delete |
-| Registered-user tags | Event authors tag other registered members; tags do not imply attendance or RSVP |
+| Tags | An event's creator tags existing Persons (with a picker); duplicates are impossible; a tag never implies attendance or an RSVP |
+| Shared events | Every signed-in member sees all events in time order; the creator alone edits/deletes |
 | RSVP / My Calendar | A member sets Going/Interested or clears their own RSVP; members see responses; My Calendar shows only their own RSVP events |
-| Community calendar | Browse shared events by their recorded local date |
-| Details/corrections | Open an event, edit its fields, inspect participants and delete deliberately |
-| Durable archive | Sign up with a single-use invite code, sign in and automatically join TBellini; authenticated members share events while private people/notes remain isolated |
+| Shared calendar | Browse all events by their recorded local date |
+| Details/corrections | Open an event, edit its fields, inspect tagged people and RSVPs, and delete deliberately |
+| Claiming | A member can ask "this is me" for an unlinked Person and the Person's creator confirms; an invite can also name the Person the invitee becomes |
+| Durable archive | Sign up with a single-use invite code (any member can create one), sign in, and share everything with the group; signed-out visitors see nothing |
 
-This repository supplies the initial implementation and infrastructure skeleton. Live Supabase/Neo4j/Cloudflare verification, domain/DNS provisioning and production enablement remain operator tasks. Local migrations/RLS tests and demo browser smoke tests have passed as recorded in VALIDATION.md. Automated browser regression, accessibility review, and authenticated hosted multi-user smoke tests remain before a production release.
+The implementation matches this table in demo mode and over a fake database in the contract tests; the Supabase schema and RLS are covered by pgTAP. Remaining before production: a browser run against the local Supabase stack (pending, see VALIDATION.md), merge into `feature/base-tbellini-site`, then user-approved provisioning (Supabase, hosted Auth settings, first-invite seeding, Vercel, DNS) and a two-account live smoke test, all tracked in `plans/STATUS.md`. Automated browser regression and an accessibility review are not done.
 
 ## Later capability branches
 

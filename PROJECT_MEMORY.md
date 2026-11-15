@@ -64,16 +64,23 @@ The user's last instruction was to continue necessary work and wrap it up. The f
 
 Use this roadmap as the imported product baseline. Check current Linear state before relying on historical completion claims or altering existing issues. Implementation architecture, technology choices, detailed schemas, and acceptance criteria are not specified in this shared conversation.
 
-## M0 implementation correction — October 6, 2026
+## Shared-space model — October 17, 2026 (current)
 
-The user clarified that M0 is one TBellini community: all registered users automatically join, browse the same community events/calendar, create events, tag registered users, and set their own Going or Interested RSVP. The personal calendar is filtered by the current user's RSVP. Registered user profiles and event tags are distinct from privately recorded archive people and historical attendance. Authors alone edit/delete their events and manage registered-user tags; users alone change their own RSVP. Private people/notes stay owner scoped. Community members can see who is Going or Interested; RSVP mutation remains self-only.
+The user decided that tbellini-m is one shared space for one group. This supersedes the October 6 community correction and its private archive people. Current rules:
 
-This explicit correction supersedes the initial implementation's private-events-only assumption while preserving the archive-first product and M0 priority. It does not authorize public/anonymous event access, invitations, additional communities, a social feed, external Linear changes, or deployment. The single fixed community is provisioned by a forward database migration with signup enrollment and existing-account/event backfill. Existing events become community visible; private archive people do not. Older imported roadmap text above remains historical source context.
+- There is no Community or Membership entity and no private data. A profile means "can log in" (plus a display name). Every signed-in account reads everything; signed-out visitors see nothing.
+- Only a record's creator edits or deletes it. Members write only their own Going or Interested RSVP and everyone sees all RSVPs. The personal calendar is filtered by the current member's RSVPs.
+- People are shared Person records. People without accounts are Persons with no linked member; a member can claim an unlinked Person and the Person's creator confirms, or an invite can name the Person the invitee becomes. Each member automatically gets a Person (the default in `ensure_member_person`; the claiming decisions are awaiting the user's review).
+- Event tags point at Persons and never imply an RSVP; the event's creator manages them.
+- Signup is invite-only; any member can create a single-use, expiring code (default 7 days). There is no admin role.
+- Spotify is the music provider (later; M2a).
+
+M0 still means events, people, tags, RSVPs and calendars as in the roadmap above; the archive-first direction and the capability to user-story structure are unchanged. The earlier October 6 text (fixed community, private people, owner-scoped attendance) is historical context only. The October 6 note that did not authorize invitations was superseded by the invite-only registration below. Public/anonymous access, additional groups, a social feed and external Linear changes remain unauthorized.
 
 ## Repository continuation
 
-The initial implementation and community correction are mapped in [docs/PROJECT_HANDOFF.md](docs/PROJECT_HANDOFF.md). That handoff describes implementation evidence; it does not change the imported roadmap or claim hosted deployment. Supabase remains authoritative, Neo4j is derived, Vercel hosts the app, and Cloudflare's additional capabilities are opt-in scaffolding. Read current source and validation records before extending a capability.
+The implementation, now on the shared-space model, is mapped in [docs/PROJECT_HANDOFF.md](docs/PROJECT_HANDOFF.md). That handoff describes implementation evidence; it does not change the imported roadmap or claim hosted deployment. Supabase remains authoritative, Neo4j is derived, Vercel hosts the app, and Cloudflare's additional capabilities are opt-in scaffolding. Read current source and validation records before extending a capability.
 
 ## Invite-only registration — October 8–9, 2026
 
-The user added invite-only registration (commits 28a2536 and 4d10e92), superseding the October 6 note that invitations were not authorized. Any signed-in member can create a single-use code that expires (default 7 days); signup requires one. There are still no admin roles, public access or additional communities. The October 17 hardening moved code generation into the database and sealed the invitations table; see docs/RUNBOOK.md.
+The user added invite-only registration (commits 28a2536 and 4d10e92), superseding the October 6 note that invitations were not authorized. Any signed-in member can create a single-use code that expires (default 7 days); signup requires one. There are no admin roles, public access or additional groups. The October 17 hardening moved code generation into the database and sealed the invitations table; see docs/RUNBOOK.md.

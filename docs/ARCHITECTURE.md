@@ -1,12 +1,11 @@
 # Architecture
 
-This document describes TBellini as it is and as it will be after Phase 1. The database already uses the
-shared-space model; the TypeScript code in `src/` still uses the old community model until Phase 1 step b.
-Every statement carries one of three labels:
+This document describes TBellini as implemented. The database, the TypeScript code in `src/`, the graph scripts and
+the UI all use the shared-space model. Statements carry one of three labels:
 
 - **[DB]** implemented in `supabase/migrations/` (through `20261017000000_shared_space.sql`).
 - **[code]** implemented in `src/`, `scripts/`, `cloudflare/` or `.github/`.
-- **[planned]** not implemented yet.
+- **[planned]** not implemented yet (hosting, Spotify, media).
 
 Read the migrations, not memory, when in doubt: they are the source of truth for data and access rules.
 
@@ -18,8 +17,8 @@ Read the migrations, not memory, when in doubt: they are the source of truth for
 - **[DB]** Signup is invite-only (`20261006000003_invitations.sql`, `join_tbellini()` redefined in the shared-space
   migration at `:136-166`). Any member can create an invite; there is no admin role (`create_invitation`, `:169-203`).
 - **[DB]** RSVPs are self-only. Tags point at a Person and never imply an RSVP (`:84-85`, `:265-268`).
-- **[planned]** UI nuance: members should have to make an effort to look up another member's details unless they
-  were posted. This is a UI concern (Phase 1 step d), not an RLS restriction.
+- **[code]** UI nuance: another member's details are reached on purpose (People and Members views, then a detail
+  page) rather than shown inline. This is a UI choice (`src/components/person-detail.tsx`), not an RLS restriction.
 
 ## 2. System context
 
@@ -38,67 +37,53 @@ Hosting status:
 
 | Component | Role | Status |
 | --- | --- | --- |
-| Next.js 16 app (`package.json`: `next` 16.3.8) | UI; single client component tree, one API route | [code] runs locally; **not deployed** |
+| Next.js 16 app (`package.json`: `next` 16.3.8) | UI; single client component tree, one API route (`/api/health`) | [code] runs locally; **not deployed** |
 | Vercel | Hosts the app | [planned] no project exists yet (Phase 2) |
 | Supabase | Postgres, Auth, RLS: the source of truth | [DB] migrations and pgTAP tests exist; **no hosted project exists** (Phase 2) |
 | Cloudflare | DNS (later) and an optional Worker `cloudflare/worker.js` that only serves `GET /health`; deployed by a manual workflow gated on `vars.CLOUDFLARE_DEPLOY_ENABLED` (`.github/workflows/cloudflare.yml`) | [code] worker and workflow; nothing deployed |
 | Neo4j Aura | Optional derived graph, replayed from the outbox | [code] projector and manual workflow gated on `vars.NEO4J_SYNC_ENABLED` (`.github/workflows/graph-sync.yml`); no instance |
 | Spotify | Music integration | [planned] (M2a); no code |
-| Media storage (R2) | `MediaStorage` port only | [planned] (M2b); the port in `src/domain/ports.ts:2` has no implementation |
+| Media storage (R2) | Object storage for media | [planned] (M2b); no port or code exists yet (the unused `MediaStorage` interface was removed) |
 
 ## 3. Repository layout
 
 | Path | Contents |
 | --- | --- |
 | `src/app/` | Next.js App Router: `layout.tsx`, `page.tsx`, `error.tsx`, `api/health/route.ts` |
-| `src/components/` | React UI (`archive-app.tsx`, `auth.tsx`, `calendar.tsx`, `forms.tsx`, `event-detail.tsx`, `community-views.tsx`) |
-| `src/domain/` | `archive.ts` (entities, schemas, `ArchiveService`), `community.ts`, `ports.ts`, `time.ts` |
-| `src/infrastructure/` | Adapters: `demo.ts`, `demo-store.ts`, `supabase.ts`, `supabase-community.ts`, `read-all.ts` |
-| `src/lib/` | `archive-config.ts` (run-mode resolution), `latest-request.ts` |
+| `src/app/archive-root.tsx` | Client entry: builds the runtime once in the browser and renders `ArchiveApp` or a configuration error |
+| `src/components/` | React UI: `archive-app.tsx`, `use-archive-session.ts`, `auth.tsx`, `calendar.tsx`, `event-list.tsx`, `event-detail.tsx`, `forms.tsx`, `people-view.tsx`, `person-detail.tsx`, `person-picker.tsx`, `members-view.tsx`, `invite-panel.tsx`, `labels.ts` (all view labels) |
+| `src/domain/` | Pure domain: `archive.ts` (events, people, tags, claims), `members.ts` (profiles, RSVPs, sign-up schema), `rules.ts` (shared guards), `service.ts` (`ArchiveService`), `snapshot.ts`, `ports.ts`, `primitives.ts`, `invite-code.ts`, `time.ts` |
+| `src/infrastructure/` | Adapters. Demo: `demo.ts`, `demo-store.ts`, `demo-auth.ts`, `demo-claims.ts`, `demo-seed.ts`, `demo-migration.ts`. Supabase: `supabase.ts` (barrel), `supabase-repositories.ts`, `supabase-auth.ts`, `supabase-schema.ts`. Shared: `read-all.ts` |
+| `src/lib/` | `archive-config.ts` (run-mode resolution), `archive-runtime.ts` (composition root), `health.ts` (readiness report and Supabase probe), `latest-request.ts` |
 | `supabase/migrations/`, `supabase/tests/` | Schema, RLS, functions; pgTAP tests |
-| `scripts/` | Outbox replay and graph projection (`sync-graph.mjs`, `replay-outbox.mjs`, `project-graph.mjs`) |
+| `scripts/` | Outbox replay and graph projection (`sync-graph.mjs`, `replay-outbox.mjs`, `project-graph.mjs`, `graph-schema.mjs`) and first-invite seeding (`seed-invite.mjs`, `seed-invite-core.mjs`) |
+| `justfile` | Task runner: setup, run, checks, local database, hosted operations (see `docs/RUNBOOK.md`) |
 | `neo4j/constraints.cypher`, `cloudflare/` | Graph constraint; optional edge worker |
-| `tests/` | Vitest suites |
+| `tests/` | Vitest suites; `tests/contract.test.ts` runs one behavioural contract against the demo adapter and the Supabase adapter (over an in-memory fake PostgREST in `tests/support/fake-database.ts`) |
 
 ## 4. Layering
 
-### Target state (after Phase 1) [planned]
+[code]
 
 ```
-components (UI)  ->  composition root  ->  ArchiveService (domain)  ->  ports
-                          |                                              ^
-                          +-> demo adapters | supabase adapters  --------+
+components (UI)  ->  ArchiveRuntime (composition root)  ->  ArchiveService (domain)  ->  ports
+                          |                                                               ^
+                          +-> demo adapters | supabase adapters  -------------------------+
                           +-> config (archive-config)
 ```
 
-- Domain is pure: entities, zod schemas, time rules and `ArchiveService`, with no framework, storage or network imports.
-- Ports are interfaces the domain depends on: repositories for events, people, tags and RSVPs, plus an `AuthPort`
-  (so UI and service code stop using the concrete `SupabaseClient`).
-- Two adapter sets implement the ports: demo (localStorage) and Supabase. They must behave the same.
-- A composition root picks the adapter set from configuration and builds the `ArchiveService`. Components receive
-  the service and never read `process.env` or import adapters.
-- Phase 1 step b also introduces the demo snapshot v3 (migration from v2), shared Persons and `event_person_tags`.
-
-### Current state [code]
-
-- The domain is mostly pure: `src/domain/archive.ts` imports only `zod` and `community.ts`; `time.ts` has no imports of note.
-  `ArchiveService` (`archive.ts:50`) enforces invariants over `ArchiveRepositories` (`archive.ts:25`).
-- `src/domain/ports.ts` declares `MediaStorage` and `GraphProjection`. Both are unused (no implementation or consumer).
-  Repository interfaces live in `archive.ts` and `community.ts`, not in `ports.ts`.
-- Adapters: `createDemoRepositories` (`src/infrastructure/demo.ts:29`, backed by `DemoStore` in `demo-store.ts`) and
-  `createSupabaseRepositories` (`src/infrastructure/supabase.ts:29`, plus `createCommunityRepository` in `supabase-community.ts:11`).
-- **There is no composition root.** `src/components/archive-app.tsx` imports both adapters, reads
-  `process.env.NEXT_PUBLIC_*` (line 30), and constructs `new ArchiveService(...)` in several places
-  (demo at ~line 42, Supabase at ~line 53, demo reset at ~line 85). `components/auth.tsx` and `archive-app.tsx` use the
-  concrete `SupabaseClient`; there is no `AuthPort`.
-- Config: `archiveConfiguration()` (`src/lib/archive-config.ts:4`) is pure and is called from both `archive-app.tsx` and
-  `src/app/api/health/route.ts`.
-- **[code, stale against DB]** The domain still models `Community`, `ArchiveEvent.communityId/visibility`,
-  private `Person` (`visibility: 'private'`), `Attendance` (private person links) and `UserTag`
-  (`src/domain/archive.ts:10-12`, `src/domain/community.ts:2-7`). The Supabase adapter queries `event_people`,
-  `event_user_tags`, `memberships` and sends `owner_id` for people (`supabase.ts:35`, `supabase-community.ts:14,20`,
-  `supabase.ts:13`). Those tables and columns were removed or renamed by the shared-space migration, so **Supabase
-  mode in code does not work against the current migrations** until step b. Demo mode is unaffected.
+- The domain is pure: entities, zod schemas, time rules, shared guards (`rules.ts`) and `ArchiveService`
+  (`src/domain/service.ts`) import no framework, storage or network code. Both adapter sets reuse the same guards.
+- `src/domain/ports.ts` declares the repositories (`Repository`, `TagRepository`, `RsvpRepository`, `MemberRepository`,
+  `ClaimRepository`, `InvitationRepository`), `ArchiveRepositories`, `RepositoryFactory`, `AuthPort` and `DemoControls`.
+- Two adapter sets implement them: demo (`localStorage`, `DemoAuth`) and Supabase (`SupabaseAuth`,
+  `createSupabaseRepositories`). `tests/contract.test.ts` holds them to one behaviour; the Supabase side runs over a fake
+  database, not real Postgres, so RLS itself is proven only by pgTAP.
+- `createArchiveRuntime` (`src/lib/archive-runtime.ts`) is the single place that reads configuration and picks the
+  adapter set. `src/app/archive-root.tsx` builds it once in the browser. Components receive the runtime, never read
+  `process.env` (only `readArchiveEnvironment` does) and do not import adapters.
+- The browser session lives in the Supabase client (`createArchiveClient`, `src/infrastructure/supabase.ts`); components see only `AuthPort`.
+- Demo storage is snapshot v3 (`tbellini.community.v3`); `demo-migration.ts` upgrades v2 and v1 data.
 
 ## 5. Data model [DB]
 
@@ -113,7 +98,7 @@ Authoritative: the migrations in order `20261006000000_archive.sql`, `…01_grap
 | `event_person_tags` | PK (`event_id`, `person_id`), `tagged_by`, `created_at` | Replaces `event_people` and `event_user_tags` (data converted, old tables dropped, `:84-103`). A tag never implies an RSVP |
 | `event_rsvps` | PK (`event_id`, `user_id`), `status` (`going` or `interested`), timestamps | `community_id` dropped (`:105-110`). Identity immutable (`prevent_connection_transfer`, `:111-118`) |
 | `invitations` | `code` (`^[A-Z0-9-]{8,12}$`), `created_by`, `expires_at`, `used_at`, `used_by`, `person_id` | No client access at all (`…03:13-15`). `person_id` added at shared_space `:134` |
-| `person_claims` | PK (`person_id`, `claimant_id`), `claimant_id` unique | Claiming path 2, schema only (`:206-211`); no client UI |
+| `person_claims` | PK (`person_id`, `claimant_id`), `claimant_id` unique | Claiming path 2 (`:206-211`). The UI requests and cancels claims; the Person's creator confirms through RPC `confirm_person_claim` (`person-detail.tsx`, `supabase-repositories.ts`) |
 | `graph_outbox` | `id`, `owner_id`, `aggregate_type`, `aggregate_id`, `operation`, `payload`, `created_at`, `processed_at` | Service role only. Types allowed: `event, person, attendance, profile, user_tag, rsvp, tag` (`:16-18`); `attendance` and `user_tag` are retired but still permitted |
 | `graph_sync_lock` | single-lock table | Service role only (`…01:3-9`) |
 
@@ -152,14 +137,17 @@ The three test files predate the rename but run against the migrated schema.
 
 1. [DB] A member calls RPC `create_invitation` (code format `XXXX-XXXX`, alphabet without ambiguous characters, 1-30 days,
    optionally naming an unlinked Person to claim).
-2. [code] `src/components/auth.tsx` calls `supabase.auth.signUp` with `invite_code` and `display_name` in user metadata (`auth.tsx:29-34`), and
-   `signInWithPassword` for login (`:46`). The code calls `create_invitation` from `supabase-community.ts:31`.
+2. [code] The sign-up form (`src/components/auth.tsx`) calls `AuthPort.signUp`; `SupabaseAuth` (`supabase-auth.ts`) sends
+   `invite_code` and `display_name` as user metadata and uses password sign-in for login. Members create codes from the
+   invite panel (`invite-panel.tsx`) through `InvitationRepository.generate`, which calls `create_invitation`.
 3. [DB] The `auth.users` insert trigger `join_tbellini()` atomically marks the invite used; an invalid, used or expired
    code raises and the signup fails. It then creates the profile and links the named Person (or creates a new one).
-4. [planned] Hosted Auth settings (email confirmation, site URL, redirect URLs) are unconfigured and unverified. A first-invite
-   seed script is also planned (the first user cannot sign up without an invite).
+4. [code] The first user cannot sign up without an invite, so `scripts/seed-invite.mjs` (service role, from `.env.local`;
+   `just seed-invite confirm=hosted`) inserts one invitation with no creator. Hosted Auth settings (site URL, redirect
+   URLs, email confirmation, SMTP) are dashboard settings that `db push` does not apply; values are in `docs/RUNBOOK.md`
+   and have never been exercised against a hosted project.
 
-There is no server-side session handling: the browser client (`createArchiveClient`, `supabase.ts:8`, `@supabase/ssr`
+There is no server-side session handling: the browser client (`createArchiveClient`, `@supabase/ssr`
 `createBrowserClient`) holds the session, and there is no middleware or server component auth. [code]
 
 ## 7. Outbox to graph flow
@@ -170,9 +158,11 @@ There is no server-side session handling: the browser client (`createArchiveClie
    service role key to take `acquire_graph_sync_lock`, read up to 100 pending rows in `id` order, project each into Neo4j
    (`scripts/project-graph.mjs`), set `processed_at`, then release the lock. `scripts/replay-outbox.mjs` holds the replay loop.
 3. Neo4j is a replayable projection. Postgres stays authoritative; the app never reads Neo4j.
-4. **[code, stale]** The projector still maps only `event`, `person`, `profile`, `attendance`, `user_tag`, `rsvp` and scopes by
-   `community_id` (`project-graph.mjs:6-27`). It does not handle the new `tag` type and will throw `Unsupported graph aggregate type`
-   if a `tag` row is replayed. **[planned]** Phase 1 step c (deferrable past go-live because Neo4j is optional).
+4. [code] `scripts/graph-schema.mjs` is the one home for aggregate types, labels, edges and the node key format
+   (`event:<id>`, `person:<id>`, `profile:<id>`; no owner or community prefix). The projector handles `event`, `person`,
+   `profile`, `tag` (edge `TAGGED_IN`) and `rsvp` (edge `RSVP`), links a Profile to its Person (`IS`), and skips the retired
+   `attendance` and `user_tag` types with a logged reason instead of failing. Because node keys changed, a graph built by
+   the old projector must be wiped and fully replayed (`docs/RUNBOOK.md`, Neo4j projection).
 
 ## 8. Run modes and environment variables
 
@@ -180,13 +170,14 @@ There is no server-side session handling: the browser client (`createArchiveClie
 
 | Value | Behaviour [code] |
 | --- | --- |
-| `demo` | Data in browser `localStorage` (key `tbellini.community.v2`, `demo-store.ts:5`), two seeded demo users, no network |
+| `demo` | Data in browser `localStorage` (key `tbellini.community.v3`, `demo-migration.ts:9`), two seeded demo users, no network |
 | `supabase` | Real mode. Requires URL and publishable key, valid http(s) URL; otherwise a configuration error |
 | unset | `demo` when `NODE_ENV` is not `production`; `unconfigured` error in production |
 | anything else | `unconfigured` error |
 
-`GET /api/health` reports `ok` or `configuration_required` from configuration only; it does not contact Supabase
-(`src/app/api/health/route.ts:2`). **[planned]** Extend it to ping Supabase in Phase 2.
+`GET /api/health` (`src/app/api/health/route.ts`, logic in `src/lib/health.ts`) reports `ok`, `configuration_required`
+(503) or `unavailable` (503, reason `supabase_unreachable`). In supabase mode it sends a `HEAD /rest/v1/` with the
+publishable key and a 3-second timeout; any answer below 500 counts as up. The response never contains URLs, keys or errors.
 
 | Variable | Used by | Notes |
 | --- | --- | --- |
@@ -204,15 +195,17 @@ the worker), `build`; the `database` CI job runs `supabase db reset` and `supaba
 
 ## 9. Known architectural debt
 
-All [code] unless noted; fixes are scheduled for Phase 1 step b.
+The shared-space refactor removed the earlier items (no composition root, no `AuthPort`, unused ports, duplicated guards,
+unverified adapter parity). What remains:
 
-- No composition root; `archive-app.tsx` owns adapter selection, env reads and service construction (see section 4).
-- No `AuthPort`; `auth.tsx` and `archive-app.tsx` depend on the concrete `SupabaseClient`.
-- `MediaStorage` and `GraphProjection` in `ports.ts` are unused.
-- Very long lines in source (for example `src/infrastructure/demo-store.ts:19`, about 983 characters).
-- Tag and RSVP guards are duplicated between the demo and Supabase community adapters, and adapter behavioural parity is unverified.
-- Naming inconsistency: `events.owner_id` versus `people.created_by` [DB]; step b may rename.
-- The outbox check constraint still permits retired types `attendance` and `user_tag` [DB]; step c retires them.
-- The data-migrating paths of the shared-space migration (Person backfill, conversion of `event_people` and `event_user_tags`)
-  were never tested on a non-empty database [DB].
+- Long lines: 78 lines over 120 characters remain (src 16, scripts 24, tests 36, cloudflare 2; the largest are the
+  minified `src/app/globals.css:1` and `src/domain/time.ts`, `src/app/error.tsx:4`, `scripts/project-graph.mjs:29`).
+- Naming: `events.owner_id` versus `people.created_by` [DB]. The code hides it behind `CREATOR_COLUMN`
+  (`src/infrastructure/supabase-schema.ts:33`), which maps both to the domain's `createdBy`. Removing the split needs a forward migration.
+- The outbox check constraint still permits the retired types `attendance` and `user_tag` [DB]; the projector skips them.
+- The Supabase contract test runs over an in-memory fake, so adapter-to-Postgres behaviour is covered only by pgTAP and
+  the pending local-stack browser run (`docs/VALIDATION.md`).
+- The data-migrating paths of the shared-space migration (Person backfill, conversion of `event_people` and
+  `event_user_tags`) were never tested on a non-empty database [DB].
 - Real-mode flows have never run against a hosted Supabase project.
+- No `.nvmrc`; Node 22 on Vercel is a dashboard setting. No Dependabot.

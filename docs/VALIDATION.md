@@ -1,8 +1,24 @@
-# Validation record — October 6, 2026
+# Validation record
 
-This records checks executed during skeleton construction and the community correction. It is not a claim of complete line/function coverage or production readiness. Later audit results should replace the current-status table below, preserving meaningful migration/browser evidence.
+This records checks executed so far: the shared-space verification first, then the earlier skeleton and community-model records, which describe superseded behavior and are kept as history. It is not a claim of complete line/function coverage or production readiness. Later audit results should replace the current-status table below, preserving meaningful migration/browser evidence.
 
-## Latest completed verification
+## Shared-space verification — November 14, 2026
+
+Branch `feature/shared-space-db`, commits `021331b` (database), `b358f28` (domain, adapters, composition root), `5c28c8f` (graph), `70c4c90` (seed script, health ping), `1efc757` (People page, picker, claim flow). The sections below this one describe the superseded community model and are kept as history.
+
+| Check | Recorded result | What it establishes |
+| --- | --- | --- |
+| `npm run lint` | Passed | Static lint constraints |
+| `npm run typecheck` | Passed | TypeScript contracts, including the shared-space domain and adapters |
+| `npm test`, Vitest | 113 tests passed (re-run when this entry was written) | Domain rules, demo adapter, the adapter contract run against demo and a fake PostgREST, auth, components, health, runtime, SDK boundary |
+| `npm test`, node | 26 tests passed (re-run when this entry was written) | Graph projection and replay, seed script, worker |
+| `npm run build` | Passed | Build output can be generated (with no `NEXT_PUBLIC_*` it builds as "unconfigured") |
+| `supabase db reset` + `supabase test db` at step a (`021331b`) | 67 pgTAP assertions passed | Shared-space schema and RLS on local Postgres. Not re-run after later commits, which changed no SQL |
+| Local-stack browser end-to-end (2026-11-14) | PASS | Against the local Supabase stack with Playwright: `just db-reset` and `just db-test` (67 pgTAP), `just seed-invite-local`, `/api/health` 200 in supabase mode. Signup with an invite (email confirmed through Mailpit), event create, RSVP, calendar and My calendar, add and tag a new person, invite naming that Person, second signup linking to the existing Person (no duplicate), another member's RSVP absent from the personal calendar, no edit or delete on another member's event, sign-out and sign-in. One defect found and fixed (bb142a6): the invite input `pattern` was invalid under the browser `v` flag. Local only; hosted behaviour is still unverified |
+
+Not verified: hosted Supabase Auth settings, email delivery, the Vercel build with `NEXT_PUBLIC_*` set, the live two-account smoke test, the data-converting paths of the shared-space migration on a non-empty database, and a real Neo4j instance with the new node keys. The Supabase side of the adapter contract test uses an in-memory fake, so only pgTAP and the pending browser run cover real Postgres behaviour. The live smoke test result will be recorded here after provisioning.
+
+## Earlier verification (community model, historical)
 
 | Check | Recorded result | What it establishes |
 | --- | --- | --- |
