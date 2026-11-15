@@ -181,6 +181,56 @@ describe.each(FIXTURES)('adapter contract', (makeFixture): void => {
       await expect(sam.generateInvitation(31)).rejects.toThrow();
     });
 
+    it('creates a shared Person and tags it in one step, for the event creator only', async (): Promise<void> => {
+      const { sam, alex } = setup();
+      const supper = await sam.saveEvent(event);
+      await expect(alex.addPersonToEvent(supper.id, person)).rejects.toThrow();
+      const nonna = await sam.addPersonToEvent(supper.id, person);
+      const snapshot = await alex.snapshot();
+      expect(snapshot.people.map((p): string => p.id)).toContain(nonna.id);
+      expect(snapshot.tags).toMatchObject([{ eventId: supper.id, personId: nonna.id, taggedBy: SAM }]);
+    });
+
+    it('lets an invitation name only an unlinked Person', async (): Promise<void> => {
+      const { sam } = setup();
+      const nonna = await sam.savePerson(person);
+      expect(await sam.generateInvitation(7, nonna.id)).toMatch(/^[A-Z0-9-]{8,12}$/);
+      const linked = (await sam.snapshot()).people.find((p): boolean => p.memberId === ALEX);
+      await expect(sam.generateInvitation(7, linked?.id ?? '')).rejects.toThrow();
+      await expect(sam.generateInvitation(7, 'missing')).rejects.toThrow();
+    });
+
+    it('links a claimant to a Person once its creator confirms, merging their own Person', async (): Promise<void> => {
+      const { sam, alex } = setup();
+      const supper = await sam.saveEvent(event);
+      const nonna = await sam.savePerson(person);
+      const alexPerson = (await alex.snapshot()).people.find((p): boolean => p.memberId === ALEX);
+      await sam.tagPerson(supper.id, alexPerson?.id ?? '');
+      await alex.requestClaim(nonna.id);
+      await expect(alex.requestClaim(nonna.id)).rejects.toThrow();
+      expect((await sam.snapshot()).claims).toMatchObject([{ personId: nonna.id, claimantId: ALEX }]);
+      await expect(alex.confirmClaim(nonna.id, ALEX)).rejects.toThrow();
+      await sam.confirmClaim(nonna.id, ALEX);
+      const snapshot = await sam.snapshot();
+      expect(snapshot.claims).toHaveLength(0);
+      expect(snapshot.people.filter((p): boolean => p.memberId === ALEX).map((p): string => p.id)).toEqual([nonna.id]);
+      expect(snapshot.tags.map((tag): string => tag.personId)).toEqual([nonna.id]);
+      await expect(sam.generateInvitation(7, nonna.id)).rejects.toThrow();
+    });
+
+    it('lets the claimant withdraw and the creator reject, but nobody else', async (): Promise<void> => {
+      const { sam, alex } = setup();
+      const nonna = await sam.savePerson(person);
+      await alex.requestClaim(nonna.id);
+      await alex.cancelClaim(nonna.id, ALEX);
+      expect((await sam.snapshot()).claims).toHaveLength(0);
+      await alex.requestClaim(nonna.id);
+      await sam.cancelClaim(nonna.id, ALEX);
+      expect((await alex.snapshot()).claims).toHaveLength(0);
+      const samPerson = (await sam.snapshot()).people.find((p): boolean => p.memberId === SAM);
+      await expect(alex.requestClaim(samPerson?.id ?? '')).rejects.toThrow();
+    });
+
     it('orders events by instant and people and members by name', async (): Promise<void> => {
       const { sam } = setup();
       await sam.saveEvent({ ...event, title: 'Later', startsAt: '2026-12-01T12:00:00.000Z', endsAt: null });

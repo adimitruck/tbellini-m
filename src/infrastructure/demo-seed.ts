@@ -66,6 +66,7 @@ export function seedArchive(): ArchiveSnapshot {
       { eventId: 'demo-dinner', personId: 'demo-alex', taggedBy: SAM, createdAt: SEED_TIME },
       { eventId: 'demo-dinner', personId: 'demo-nonna', taggedBy: SAM, createdAt: SEED_TIME },
     ],
+    claims: [],
     members: [
       { id: SAM, displayName: 'Sam Rivera', createdAt: SEED_TIME, updatedAt: SEED_TIME },
       { id: ALEX, displayName: 'Alex Chen', createdAt: SEED_TIME, updatedAt: SEED_TIME },

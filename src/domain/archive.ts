@@ -65,4 +65,12 @@ export const tagSchema = z.object({
 });
 export type EventPersonTag = z.infer<typeof tagSchema>;
 
-export const tagKey = (tag: { eventId: string; personId: string }): string => `${tag.eventId}:${tag.personId}`;
+/** A member's "this is me" request for an unlinked Person; the Person's creator confirms or rejects it. */
+export const personClaimSchema = z.object({
+  personId: idSchema,
+  claimantId: idSchema,
+  createdAt: isoTimestamp,
+});
+export type PersonClaim = z.infer<typeof personClaimSchema>;
+
+export const tagKey =(tag: { eventId: string; personId: string }): string => `${tag.eventId}:${tag.personId}`;

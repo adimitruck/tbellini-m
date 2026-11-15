@@ -1,4 +1,4 @@
-import type { ArchiveEvent, EventInput, EventPersonTag, Person, PersonInput } from './archive';
+import type { ArchiveEvent, EventInput, EventPersonTag, Person, PersonClaim, PersonInput } from './archive';
 import type { EventRsvp, RsvpStatus, UserProfile } from './members';
 
 /** Storage for creator-owned records. Only the creator may update or remove a record. */
@@ -28,8 +28,20 @@ export interface MemberRepository {
   updateProfile(displayName: string): Promise<UserProfile>;
 }
 
+/** Claiming path 2: a member asks "this is me" for an unlinked Person; the Person's creator confirms. */
+export interface ClaimRepository {
+  list(): Promise<PersonClaim[]>;
+  /** The signed-in member asks to be the Person. One pending claim per member. */
+  request(personId: string): Promise<void>;
+  /** The claimant withdraws, or the Person's creator rejects. */
+  cancel(personId: string, claimantId: string): Promise<void>;
+  /** The Person's creator links the claimant; the claimant's automatic Person merges into the claimed one. */
+  confirm(personId: string, claimantId: string): Promise<void>;
+}
+
 export interface InvitationRepository {
-  generate(expiresInDays: number): Promise<string>;
+  /** personId names an unlinked Person the invited member will become (claiming path 1). */
+  generate(expiresInDays: number, personId: string | null): Promise<string>;
 }
 
 export interface ArchiveRepositories {
@@ -39,6 +51,7 @@ export interface ArchiveRepositories {
   tags: TagRepository;
   rsvps: RsvpRepository;
   members: MemberRepository;
+  claims: ClaimRepository;
   invitations: InvitationRepository;
 }
 

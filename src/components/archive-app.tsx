@@ -6,11 +6,13 @@ import { personalEvents } from '@/domain/snapshot';
 import type { ArchiveRuntime } from '@/lib/archive-runtime';
 import { Auth } from './auth';
 import { Calendar } from './calendar';
-import { EventList, Members } from './community-views';
 import { EventDetail } from './event-detail';
+import { EventList } from './event-list';
 import { EventForm, PersonForm } from './forms';
 import { VIEWS, VIEW_LABELS, type View } from './labels';
+import { Members } from './members-view';
 import { PeopleView } from './people-view';
+import { PersonDetail } from './person-detail';
 import { useArchiveSession } from './use-archive-session';
 
 type Editor = { kind: 'event'; record?: ArchiveEvent } | { kind: 'person'; record?: Person } | null;
@@ -25,15 +27,19 @@ export function ArchiveApp({ runtime, initialView = 'events' }: ArchiveAppProps)
   const [view, setView] = useState<View>(initialView);
   const [editor, setEditor] = useState<Editor>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [personId, setPersonId] = useState<string | null>(null);
   const closeOpenItems = useCallback((): void => {
     setSelectedId(null);
+    setPersonId(null);
     setEditor(null);
   }, []);
   const session = useArchiveSession(runtime, closeOpenItems);
   const { snapshot, busy, userId } = session;
   const selected = snapshot.events.find((event): boolean => event.id === selectedId) ?? null;
   const current = snapshot.members.find((member): boolean => member.id === userId);
+  const openPerson = snapshot.people.find((person): boolean => person.id === personId) ?? null;
   const labels = VIEW_LABELS[view];
+  const creates = view === 'people' ? 'person' : 'event';
   const myEvents = userId ? personalEvents(snapshot, userId) : [];
   const go = (next: View): void => {
     setView(next);
@@ -104,7 +110,24 @@ export function ArchiveApp({ runtime, initialView = 'events' }: ArchiveAppProps)
           busy={busy}
           onBack={(): void => setSelectedId(null)}
           onEdit={(): void => setEditor({ kind: 'event', record: selected })}
-          onRecordPerson={(): void => setEditor({ kind: 'person' })}
+          run={session.run}
+        />
+      );
+    }
+    if (view === 'people' && openPerson) {
+      return (
+        <PersonDetail
+          person={openPerson}
+          snapshot={snapshot}
+          currentUserId={userId}
+          busy={busy}
+          onBack={(): void => setPersonId(null)}
+          onEdit={(): void => setEditor({ kind: 'person', record: openPerson })}
+          onOpenEvent={(event): void => {
+            setView('events');
+            setPersonId(null);
+            setSelectedId(event.id);
+          }}
           run={session.run}
         />
       );
@@ -118,7 +141,7 @@ export function ArchiveApp({ runtime, initialView = 'events' }: ArchiveAppProps)
             <p className="muted">{labels.description}</p>
           </div>
           {labels.create && (
-            <button className="primary" onClick={(): void => setEditor({ kind: view === 'people' ? 'person' : 'event' })}>
+            <button className="primary" onClick={(): void => setEditor({ kind: creates })}>
               + {labels.create}
             </button>
           )}
@@ -155,10 +178,10 @@ export function ArchiveApp({ runtime, initialView = 'events' }: ArchiveAppProps)
           onSaveProfile={async (name): Promise<void> => {
             await session.mutate((archive) => archive.saveProfile(name));
           }}
-          onGenerateInvitation={async (): Promise<string> => {
+          onGenerateInvitation={async (forPersonId): Promise<string> => {
             let code = '';
             await session.mutate(async (archive): Promise<void> => {
-              code = await archive.generateInvitation();
+              code = await archive.generateInvitation(undefined, forPersonId);
             });
             return code;
           }}
@@ -167,13 +190,7 @@ export function ArchiveApp({ runtime, initialView = 'events' }: ArchiveAppProps)
     }
     if (view === 'people') {
       return (
-        <PeopleView
-          snapshot={snapshot}
-          currentUserId={id}
-          busy={busy}
-          onEdit={(person): void => setEditor({ kind: 'person', record: person })}
-          run={session.run}
-        />
+        <PeopleView snapshot={snapshot} onOpen={(person): void => setPersonId(person.id)} />
       );
     }
     return <EventList snapshot={snapshot} currentUserId={id} onSelect={select} />;

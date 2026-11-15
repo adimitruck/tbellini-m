@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   archiveEventSchema,
+  personClaimSchema,
   personSchema,
   tagKey,
   tagSchema,
@@ -17,11 +18,13 @@ export const snapshotSchema = z.object({
   tags: z.array(tagSchema),
   members: z.array(profileSchema),
   rsvps: z.array(rsvpSchema),
+  /** Pending claims; absent in demo data stored before claims existed. */
+  claims: z.array(personClaimSchema).default([]),
 });
 export type ArchiveSnapshot = z.infer<typeof snapshotSchema>;
 
 export function emptySnapshot(): ArchiveSnapshot {
-  return { events: [], people: [], tags: [], members: [], rsvps: [] };
+  return { events: [], people: [], tags: [], members: [], rsvps: [], claims: [] };
 }
 
 /** Personal attendance intent is explicit and independent of tagging or authorship. */
@@ -58,6 +61,10 @@ export function assertSnapshotIntegrity(snapshot: ArchiveSnapshot): void {
   if (snapshot.rsvps.some((rsvp): boolean => !memberIds.has(rsvp.userId) || !eventsById.has(rsvp.eventId))) {
     throw new Error('Broken RSVP');
   }
+  const claimable = new Set(snapshot.people.filter((p): boolean => p.memberId === null).map((p): string => p.id));
+  if (snapshot.claims.some((claim): boolean => !claimable.has(claim.personId) || !memberIds.has(claim.claimantId))) {
+    throw new Error('Broken claim');
+  }
   const linked = snapshot.people.flatMap((person): string[] => (person.memberId ? [person.memberId] : []));
   const identities = [
     snapshot.events.map((record): string => record.id),
@@ -66,6 +73,7 @@ export function assertSnapshotIntegrity(snapshot: ArchiveSnapshot): void {
     snapshot.tags.map(tagKey),
     snapshot.rsvps.map((record): string => `${record.eventId}:${record.userId}`),
     linked,
+    snapshot.claims.map((claim): string => claim.claimantId),
   ];
   if (!identities.every(isUnique)) throw new Error('Duplicate archive identity');
 }

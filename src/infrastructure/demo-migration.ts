@@ -94,6 +94,7 @@ export function migrateV2(raw: unknown): ArchiveSnapshot {
     tags: uniqueTags([...attendanceTags, ...memberTags]),
     members: old.members,
     rsvps: old.rsvps,
+    claims: [],
   };
 }
 

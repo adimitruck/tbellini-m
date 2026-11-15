@@ -24,9 +24,11 @@ import {
   requireFound,
   requireRsvpTarget,
   requireTaggable,
+  requireUnlinked,
 } from '@/domain/rules';
 import type { ArchiveSnapshot } from '@/domain/snapshot';
 import { DEMO_USERS } from './demo-seed';
+import { DemoClaims } from './demo-claims';
 import { DemoStore, type StoragePort } from './demo-store';
 
 export { DEMO_USERS, seedArchive } from './demo-seed';
@@ -142,6 +144,7 @@ class DemoPeople extends DemoRecords<Person, PersonInput> {
   }
   protected cascade(snapshot: ArchiveSnapshot, id: string): void {
     snapshot.tags = snapshot.tags.filter((tag): boolean => tag.personId !== id);
+    snapshot.claims = snapshot.claims.filter((claim): boolean => claim.personId !== id);
   }
 }
 
@@ -224,7 +227,10 @@ class DemoMembers implements MemberRepository {
 }
 
 class DemoInvitations implements InvitationRepository {
-  async generate(): Promise<string> {
+  constructor(private readonly store: DemoStore) {}
+
+  async generate(_expiresInDays: number, personId: string | null): Promise<string> {
+    if (personId !== null) requireUnlinked(this.store.read().people.find((person): boolean => person.id === personId));
     return generateInviteCode();
   }
 }
@@ -249,6 +255,7 @@ export function createDemoRepositories(
     tags: new DemoTags(store, userId),
     rsvps: new DemoRsvps(store, userId),
     members: new DemoMembers(store, userId),
-    invitations: new DemoInvitations(),
+    claims: new DemoClaims(store, userId),
+    invitations: new DemoInvitations(store),
   };
 }

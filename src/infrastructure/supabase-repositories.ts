@@ -9,6 +9,7 @@ import {
   CREATOR_COLUMN,
   RPC,
   TABLES,
+  decodeClaim,
   decodeEvent,
   decodePerson,
   decodeProfile,
@@ -178,11 +179,39 @@ export function createSupabaseRepositories(client: SupabaseClient, userId: strin
         return decodeProfile(data);
       },
     },
+    claims: {
+      async list() {
+        const rows = await readAll((from, to) =>
+          client.from(TABLES.claims).select('*').order(COLUMNS.claimantId).range(from, to),
+        );
+        return rows.map(decodeClaim);
+      },
+      async request(personId: string): Promise<void> {
+        const { error } = await client
+          .from(TABLES.claims)
+          .insert({ [COLUMNS.personId]: personId, [COLUMNS.claimantId]: userId });
+        check(error);
+      },
+      async cancel(personId: string, claimantId: string): Promise<void> {
+        const { error } = await client
+          .from(TABLES.claims)
+          .delete()
+          .eq(COLUMNS.personId, personId)
+          .eq(COLUMNS.claimantId, claimantId);
+        check(error);
+      },
+      async confirm(personId: string, claimantId: string): Promise<void> {
+        const { name, person, claimant } = RPC.confirmClaim;
+        const { error } = await client.rpc(name, { [person]: personId, [claimant]: claimantId });
+        check(error);
+      },
+    },
     invitations: {
-      async generate(expiresInDays: number): Promise<string> {
+      async generate(expiresInDays: number, personId: string | null): Promise<string> {
         // Codes are generated and stored by the database so the browser never touches the invitations table.
-        const { name, expiresInDays: argument } = RPC.createInvitation;
-        const { data, error } = await client.rpc(name, { [argument]: expiresInDays });
+        const { name, expiresInDays: days, forPerson } = RPC.createInvitation;
+        const args = personId === null ? { [days]: expiresInDays } : { [days]: expiresInDays, [forPerson]: personId };
+        const { data, error } = await client.rpc(name, args);
         check(error);
         return inviteCodeSchema.parse(data);
       },

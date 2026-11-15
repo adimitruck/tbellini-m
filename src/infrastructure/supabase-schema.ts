@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
   archiveEventSchema,
   eventInputSchema,
+  personClaimSchema,
   personInputSchema,
   personSchema,
   tagSchema,
@@ -9,6 +10,7 @@ import {
   type EventInput,
   type EventPersonTag,
   type Person,
+  type PersonClaim,
   type PersonInput,
 } from '@/domain/archive';
 import { profileSchema, rsvpSchema, type EventRsvp, type UserProfile } from '@/domain/members';
@@ -26,6 +28,7 @@ export const TABLES = {
   tags: 'event_person_tags',
   rsvps: 'event_rsvps',
   profiles: 'profiles',
+  claims: 'person_claims',
 } as const;
 export const CREATOR_COLUMN = { events: 'owner_id', people: 'created_by' } as const;
 /** Sign-up metadata keys read by the join_tbellini() trigger. */
@@ -43,9 +46,11 @@ export const COLUMNS = {
   userId: 'user_id',
   status: 'status',
   displayName: 'display_name',
+  claimantId: 'claimant_id',
 } as const;
 export const RPC = {
-  createInvitation: { name: 'create_invitation', expiresInDays: 'expires_in_days' },
+  createInvitation: { name: 'create_invitation', expiresInDays: 'expires_in_days', forPerson: 'for_person' },
+  confirmClaim: { name: 'confirm_person_claim', person: 'claimed_person', claimant: 'claimant' },
 } as const;
 
 const timestamps = { created_at: isoTimestamp, updated_at: isoTimestamp };
@@ -82,7 +87,8 @@ const rsvpRow = z.object({
   status: z.string(),
   ...timestamps,
 });
-const profileRow = z.object({ id: z.string(), display_name: z.string(), ...timestamps });
+const claimRow = z.object({ person_id: z.string(), claimant_id: z.string(), created_at: isoTimestamp });
+const profileRow =z.object({ id: z.string(), display_name: z.string(), ...timestamps });
 
 export type DbValue = string | null;
 export type DbRecord = Record<string, DbValue>;
@@ -143,6 +149,11 @@ export function decodeTag(input: unknown): EventPersonTag {
     taggedBy: row.tagged_by,
     createdAt: row.created_at,
   });
+}
+
+export function decodeClaim(input: unknown): PersonClaim {
+  const row = claimRow.parse(input);
+  return personClaimSchema.parse({ personId: row.person_id, claimantId: row.claimant_id, createdAt: row.created_at });
 }
 
 export function decodeRsvp(input: unknown): EventRsvp {

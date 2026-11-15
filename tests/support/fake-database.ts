@@ -28,6 +28,7 @@ const WRITABLE: Record<string, readonly string[]> = {
   [TABLES.tags]: [COLUMNS.eventId, COLUMNS.personId, COLUMNS.taggedBy],
   [TABLES.rsvps]: [COLUMNS.eventId, COLUMNS.userId, COLUMNS.status],
   [TABLES.profiles]: [COLUMNS.displayName],
+  [TABLES.claims]: [COLUMNS.personId, COLUMNS.claimantId],
 };
 const KEYS: Record<string, readonly string[]> = {
   [TABLES.events]: [COLUMNS.id],
@@ -35,6 +36,7 @@ const KEYS: Record<string, readonly string[]> = {
   [TABLES.tags]: [COLUMNS.eventId, COLUMNS.personId],
   [TABLES.rsvps]: [COLUMNS.eventId, COLUMNS.userId],
   [TABLES.profiles]: [COLUMNS.id],
+  [TABLES.claims]: [COLUMNS.personId, COLUMNS.claimantId],
 };
 /** Column that restricts who may update or delete a row; rows outside it are invisible to the write. */
 const SCOPE: Record<string, string> = {
@@ -43,6 +45,7 @@ const SCOPE: Record<string, string> = {
   [TABLES.tags]: COLUMNS.taggedBy,
   [TABLES.rsvps]: COLUMNS.userId,
   [TABLES.profiles]: COLUMNS.id,
+  [TABLES.claims]: COLUMNS.claimantId,
 };
 
 const postgresInstant = (value: string): string =>
@@ -105,7 +108,7 @@ export class FakeDatabase {
       throw injected;
     }
     if (!this.tables[TABLES.profiles].some((profile): boolean => profile.id === uid)) throw RLS;
-    if (url.pathname.includes('/rpc/')) return this.rpc(target, body);
+    if (url.pathname.includes('/rpc/')) return this.rpc(uid, target, body);
     const table = target;
     if (method === 'GET') return this.project(this.filter(table, url), url);
     const wantsRows = prefer.includes('return=representation');
@@ -146,8 +149,16 @@ export class FakeDatabase {
     return rows.map((row): Row => Object.fromEntries(columns.map((column): [string, string | null] => [column, row[column]])));
   }
 
+  private person(id: string | null): Row | undefined {
+    return this.tables[TABLES.people].find((row): boolean => row.id === id);
+  }
+
+  /** A claim is withdrawn by its claimant or rejected by the creator of the claimed Person. */
   private scoped(uid: string, table: string, url: URL): Row[] {
-    return this.filter(table, url).filter((row): boolean => row[SCOPE[table]] === uid);
+    const mayChange = (row: Row): boolean =>
+      row[SCOPE[table]] === uid ||
+      (table === TABLES.claims && this.person(row[COLUMNS.personId])?.[CREATOR_COLUMN.people] === uid);
+    return this.filter(table, url).filter(mayChange);
   }
 
   private insert(uid: string, table: string, body: unknown, prefer: string): Row[] {
@@ -182,6 +193,7 @@ export class FakeDatabase {
       if (event[CREATOR_COLUMN.events] !== uid) throw RLS;
       if (!this.tables[TABLES.people].some((person): boolean => person.id === row[COLUMNS.personId])) throw FOREIGN_KEY;
     }
+    if (table === TABLES.claims && this.person(row[COLUMNS.personId])?.member_id !== null) throw RLS;
     if (table === TABLES.rsvps && !this.tables[TABLES.events].some((event): boolean => event.id === row[COLUMNS.eventId])) {
       throw FOREIGN_KEY;
     }
@@ -204,6 +216,8 @@ export class FakeDatabase {
     if (table === TABLES.people) Object.assign(row, { member_id: null, notes: input.notes ?? null });
     if (table === TABLES.people && !String(input[COLUMNS.displayName] ?? '').trim()) throw CHECK;
     this.authorize(uid, table, row);
+    const taken = (other: Row): boolean => other[COLUMNS.claimantId] === row[COLUMNS.claimantId];
+    if (table === TABLES.claims && this.tables[table].some(taken)) throw new Failure(409, '23505', 'duplicate key');
     return row;
   }
 
@@ -231,16 +245,49 @@ export class FakeDatabase {
       }
     }
     if (table === TABLES.people) {
-      this.tables[TABLES.tags] = this.tables[TABLES.tags].filter((row): boolean => !ids.has(row[COLUMNS.personId]));
+      for (const dependent of [TABLES.tags, TABLES.claims]) {
+        this.tables[dependent] = this.tables[dependent].filter((row): boolean => !ids.has(row[COLUMNS.personId]));
+      }
     }
   }
 
-  private rpc(name: string, body: unknown): string {
+  private rpc(uid: string, name: string, body: unknown): string | null {
+    const args = body as Record<string, unknown>;
+    if (name === RPC.confirmClaim.name) {
+      this.confirmClaim(uid, String(args[RPC.confirmClaim.person]), String(args[RPC.confirmClaim.claimant]));
+      return null;
+    }
     if (name !== RPC.createInvitation.name) throw new Failure(404, 'PGRST202', 'no such function');
-    const days = (body as Record<string, unknown>)[RPC.createInvitation.expiresInDays];
+    const days = args[RPC.createInvitation.expiresInDays];
     if (typeof days !== 'number' || days < 1 || days > 30) {
       throw new Failure(400, '22023', 'Invitations expire within 1 to 30 days.');
     }
+    const named = args[RPC.createInvitation.forPerson];
+    if (named !== undefined && this.person(String(named))?.member_id !== null) {
+      throw new Failure(400, '22023', 'Choose a person who is not linked to a member yet.');
+    }
     return 'ABCD-2345';
+  }
+
+  /** confirm_person_claim(): the creator of an unlinked Person links the claimant and merges their own Person in. */
+  private confirmClaim(uid: string, personId: string, claimantId: string): void {
+    const claimed = this.person(personId);
+    if (!claimed || claimed[CREATOR_COLUMN.people] !== uid || claimed.member_id !== null) {
+      throw new Failure(403, '42501', 'Only the creator of an unlinked person can confirm a claim.');
+    }
+    const pending = (row: Row): boolean => row[COLUMNS.personId] === personId && row[COLUMNS.claimantId] === claimantId;
+    if (!this.tables[TABLES.claims].some(pending)) throw new Failure(400, '22023', 'No such claim.');
+    const own = this.tables[TABLES.people].find((row): boolean => row.member_id === claimantId);
+    if (own) {
+      const known = new Set(this.tables[TABLES.tags].map((row): string => `${row.event_id}:${row.person_id}`));
+      for (const tag of this.tables[TABLES.tags].filter((row): boolean => row.person_id === own.id)) {
+        if (!known.has(`${tag.event_id}:${personId}`)) this.tables[TABLES.tags].push({ ...tag, person_id: personId });
+      }
+      this.tables[TABLES.people] = this.tables[TABLES.people].filter((row): boolean => row !== own);
+      this.cascade(TABLES.people, [own]);
+    }
+    claimed.member_id = claimantId;
+    const others = (row: Row): boolean => row[COLUMNS.claimantId] !== claimantId;
+    this.tables[TABLES.claims] = this.tables[TABLES.claims].filter(others);
   }
 }

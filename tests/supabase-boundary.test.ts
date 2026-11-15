@@ -88,7 +88,7 @@ describe('Supabase response boundary', (): void => {
 
   it('surfaces a rejected invitation code response', async (): Promise<void> => {
     const bad = cannedRepositories(() => ({ body: 'not a code' }));
-    await expect(bad.invitations.generate(7)).rejects.toThrow();
+    await expect(bad.invitations.generate(7, null)).rejects.toThrow();
   });
 });
 
