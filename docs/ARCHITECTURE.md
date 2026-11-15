@@ -1,58 +1,218 @@
 # Architecture
 
-## Product and system boundaries
+This document describes TBellini as it is and as it will be after Phase 1. The database already uses the
+shared-space model; the TypeScript code in `src/` still uses the old community model until Phase 1 step b.
+Every statement carries one of three labels:
 
-The product is an archive-first app, beginning with one authenticated TBellini community and Events & Calendar. Every registered account automatically joins; anonymous visitors cannot read community data. Supabase Postgres is the source of truth. Neo4j stores derived connections; graph availability must never block an event edit. Vercel runs the Next.js app. Cloudflare's worker is a reserved service boundary with a health endpoint; R2/media, queues and other Cloudflare integrations belong to later capabilities, not the M0 write path.
+- **[DB]** implemented in `supabase/migrations/` (through `20261017000000_shared_space.sql`).
+- **[code]** implemented in `src/`, `scripts/`, `cloudflare/` or `.github/`.
+- **[planned]** not implemented yet.
 
-The application separates domain entities/validation, generic repository contracts, community- and owner-scoped archive operations, infrastructure implementations, and presentation. Shared entity metadata uses explicit interfaces and composition; introduce inheritance only when behavior is actually substitutable. Do not add a base class just to share a property. Inject repositories into services; choose provider implementations at the composition boundary. Demo and authenticated Supabase adapters must implement the same behavior.
+Read the migrations, not memory, when in doubt: they are the source of truth for data and access rules.
 
-## Current source boundaries
+## 1. Product model
 
-- `src/domain/archive.ts`: shared records, generic repositories, `ArchiveService`, validation and `personalEvents`.
-- `src/domain/community.ts`: fixed community UUID, profile/membership/tag/RSVP contracts and decoders.
-- `src/domain/time.ts`: recorded-zone display/calendar grouping and wall-time conversion, including historical second-level offsets. New ambiguous/skipped DST wall times are rejected; `formInstant` preserves an unchanged original instant during text-only edits, including seconds and repeated-hour identity.
-- `src/infrastructure/demo.ts` and `demo-store.ts`: owner-aware repository implementations, shared browser snapshot and v1 migration.
-- `src/infrastructure/supabase.ts` and `supabase-community.ts`: browser SDK adapters, scoped reads/writes and returned-row validation.
-- `src/components/archive-app.tsx`: provider composition, latest-request session guards, authenticated load recovery and UI state. Event/detail/calendar/forms/member views are presentation modules.
-- `src/lib/archive-config.ts` and `latest-request.ts`: shared UI/health configuration checks and session-safe asynchronous result/error guards.
-- `src/infrastructure/read-all.ts`: stable-order, authorization-scoped paginated reads beyond the default 1,000-row cap.
-- `src/domain/ports.ts`: `MediaStorage` and `GraphProjection` extension contracts only. They are not wired live services; the graph runner currently owns its SDK orchestration.
+- **[DB]** One shared group. There is no community, membership or per-person privacy. A `profiles` row means
+  "can log in". Every signed-in user with a profile reads everything; only a record's creator edits or deletes it
+  (`supabase/migrations/20261017000000_shared_space.sql:3-5`, `:252-271`).
+- **[DB]** Signup is invite-only (`20261006000003_invitations.sql`, `join_tbellini()` redefined in the shared-space
+  migration at `:136-166`). Any member can create an invite; there is no admin role (`create_invitation`, `:169-203`).
+- **[DB]** RSVPs are self-only. Tags point at a Person and never imply an RSVP (`:84-85`, `:265-268`).
+- **[planned]** UI nuance: members should have to make an effort to look up another member's details unless they
+  were posted. This is a UI concern (Phase 1 step d), not an RLS restriction.
 
-The app uses browser-side email/password Supabase auth. Registration is invite-only: signup collects a display name and an invite code, and the database signup trigger atomically consumes an unused, unexpired code before creating the profile and membership. Members create codes through the `create_invitation` RPC. Confirmation-required users confirm email then sign in. There is no implemented OAuth/PKCE callback, SSR archive reader, server session proxy, realtime subscription, polling, or graph-backed UI. Auth changes reload the snapshot; successful mutations reload it for the current session. Another browser's changes need a reload or local action to appear.
+## 2. System context
 
-## Data model
+```mermaid
+flowchart LR
+  User([Member browser]) -->|HTTPS| Vercel[Next.js app on Vercel]
+  User -. optional edge .-> CF[Cloudflare DNS + optional Worker]
+  Vercel -->|Supabase JS: Auth + PostgREST, publishable key + user session| SB[(Supabase: Postgres, Auth, RLS)]
+  SB -->|triggers write| Outbox[graph_outbox table]
+  GH[GitHub Actions: manual graph-sync] -->|service_role key| Outbox
+  GH -->|Bolt| Neo[(Neo4j Aura, optional)]
+  Spotify[Spotify, later] -.-> Vercel
+```
 
-| Table | Responsibility | Ownership |
+Hosting status:
+
+| Component | Role | Status |
 | --- | --- | --- |
-| `communities` / `memberships` | Fixed TBellini community and automatic registered-account enrollment | Signup trigger and service only; no client membership writes |
-| `profiles` | Registered members' display names, separate from private archive people | Members read; user edits own name |
-| `events` | Shared community event context and date/time | `owner_id` is immutable author; members read/create, author alone edits/deletes |
-| `event_user_tags` | Author tags registered users in an event | Member reads; author manages; does not imply an RSVP |
-| `event_rsvps` | Community-visible Going/Interested state feeding My Calendar | Member reads; user alone sets/clears own state |
-| `people` | Basic display name and private notes | Independent owner record; not an app account |
-| `event_people` | Attendance association | Composite foreign keys require both endpoints to have the same owner |
-| `invitations` | Single-use signup codes with creator, expiry and consumer | RLS with no client grants; members create via `create_invitation()` RPC; signup trigger consumes |
-| `graph_outbox` | Transactional ordered projection changes/tombstones | Service-role access only |
-| `graph_sync_lock` | Exclusive replay mutex | Service-role RPC only |
+| Next.js 16 app (`package.json`: `next` 16.3.8) | UI; single client component tree, one API route | [code] runs locally; **not deployed** |
+| Vercel | Hosts the app | [planned] no project exists yet (Phase 2) |
+| Supabase | Postgres, Auth, RLS: the source of truth | [DB] migrations and pgTAP tests exist; **no hosted project exists** (Phase 2) |
+| Cloudflare | DNS (later) and an optional Worker `cloudflare/worker.js` that only serves `GET /health`; deployed by a manual workflow gated on `vars.CLOUDFLARE_DEPLOY_ENABLED` (`.github/workflows/cloudflare.yml`) | [code] worker and workflow; nothing deployed |
+| Neo4j Aura | Optional derived graph, replayed from the outbox | [code] projector and manual workflow gated on `vars.NEO4J_SYNC_ENABLED` (`.github/workflows/graph-sync.yml`); no instance |
+| Spotify | Music integration | [planned] (M2a); no code |
+| Media storage (R2) | `MediaStorage` port only | [planned] (M2b); the port in `src/domain/ports.ts:2` has no implementation |
 
-Events and people share UUID IDs, author/owner, timestamps and manual provenance. Event visibility is community: title, description/notes, dates, timezone and location are visible to every authenticated TBellini member. Archive people and their notes/links remain private. Identity and event author/community cannot be reassigned. The community migration backfills all existing accounts and makes existing events community visible; it preserves private people/notes and attendance. SQL enforces nonempty names, date order, owner association and RLS; boundary validation additionally validates IANA timezone and length limits. Store instants as `timestamptz`, preserving the original timezone for display. Future approximate dates require a new explicit model, not a fake timestamp.
+## 3. Repository layout
 
-Authenticated clients use a publishable Supabase key and user session. RLS is enabled on every public table. Browser roles have no outbox, mutex or invitations table access; invite codes are generated in Postgres from `gen_random_uuid()` randomness. The sync script alone uses a service-role secret; do not place it in client bundles or application component imports. Neo4j keys are `communityId:event:id` for shared events, `communityId:profile:id` for registered profiles, and `ownerId:person:id` for private people.
+| Path | Contents |
+| --- | --- |
+| `src/app/` | Next.js App Router: `layout.tsx`, `page.tsx`, `error.tsx`, `api/health/route.ts` |
+| `src/components/` | React UI (`archive-app.tsx`, `auth.tsx`, `calendar.tsx`, `forms.tsx`, `event-detail.tsx`, `community-views.tsx`) |
+| `src/domain/` | `archive.ts` (entities, schemas, `ArchiveService`), `community.ts`, `ports.ts`, `time.ts` |
+| `src/infrastructure/` | Adapters: `demo.ts`, `demo-store.ts`, `supabase.ts`, `supabase-community.ts`, `read-all.ts` |
+| `src/lib/` | `archive-config.ts` (run-mode resolution), `latest-request.ts` |
+| `supabase/migrations/`, `supabase/tests/` | Schema, RLS, functions; pgTAP tests |
+| `scripts/` | Outbox replay and graph projection (`sync-graph.mjs`, `replay-outbox.mjs`, `project-graph.mjs`) |
+| `neo4j/constraints.cypher`, `cloudflare/` | Graph constraint; optional edge worker |
+| `tests/` | Vitest suites |
 
-## Graph consistency
+## 4. Layering
 
-Database triggers enqueue changes in the same transaction as archive writes, including cascading deletes. `scripts/sync-graph.mjs` injects queue/driver adapters into `scripts/replay-outbox.mjs`, which acquires a non-expiring database mutex, installs the unique entity-key constraint, drains pending changes by queue ID, executes parameterized idempotent Cypher, then acknowledges only that record. A failed projection stays pending. A successful graph write followed by a failed acknowledgement safely replays. Missing association endpoints fail visibly instead of silently discarding a relationship. Cleanup attempts driver close and owned-token release independently; aggregated cleanup failures retain the original replay error. An acknowledgement must confirm the exact pending record, so missing acknowledgements fail visibly.
+### Target state (after Phase 1) [planned]
 
-Neo4j nodes are `ArchiveEntity:Event`, `ArchiveEntity:Profile` and private `ArchiveEntity:Person`. Registered profiles connect through separate `TAGGED_IN` and `RSVP` relationships; RSVP status is stored on the relationship. Private archive attendance uses `ATTENDED` with owner and private visibility, even when its event is shared. Only IDs, scope, visibility, display title, update timestamp and RSVP state are projected; email and private notes/descriptions stay out of Neo4j. Deleting a node detaches its relationships. This first implementation is a manually operated batch projector, not a continuously scheduled ingestion service. Crash recovery and rebuild are documented in the runbook. Never query the graph directly from an untrusted browser; a future graph reader must enforce community membership and separately enforce owner scope for every private node/relationship before serving results. Never expose private attendance through an unrestricted community event traversal. The projector understands older private outbox rows; migration snapshot changes event keys, removes legacy nodes, and requeues private relationships after endpoints.
+```
+components (UI)  ->  composition root  ->  ArchiveService (domain)  ->  ports
+                          |                                              ^
+                          +-> demo adapters | supabase adapters  --------+
+                          +-> config (archive-config)
+```
 
-## Extension rules
+- Domain is pure: entities, zod schemas, time rules and `ArchiveService`, with no framework, storage or network imports.
+- Ports are interfaces the domain depends on: repositories for events, people, tags and RSVPs, plus an `AuthPort`
+  (so UI and service code stop using the concrete `SupabaseClient`).
+- Two adapter sets implement the ports: demo (localStorage) and Supabase. They must behave the same.
+- A composition root picks the adapter set from configuration and builds the `ArchiveService`. Components receive
+  the service and never read `process.env` or import adapters.
+- Phase 1 step b also introduces the demo snapshot v3 (migration from v2), shared Persons and `event_person_tags`.
 
-Add a capability through a domain contract, service use case, infrastructure adapter and user-facing flow. Keep provider SDKs at infrastructure boundaries. A place/media/memory feature should reuse existing IDs and associations while adding cohesive modules; do not make the event repository responsible for the whole archive. Keep secrets, graph orchestration and object storage authorization on the server or worker. Add outbox types with matching replay behavior and tests in the same change.
+### Current state [code]
 
-## Demo and presentation behavior
+- The domain is mostly pure: `src/domain/archive.ts` imports only `zod` and `community.ts`; `time.ts` has no imports of note.
+  `ArchiveService` (`archive.ts:50`) enforces invariants over `ArchiveRepositories` (`archive.ts:25`).
+- `src/domain/ports.ts` declares `MediaStorage` and `GraphProjection`. Both are unused (no implementation or consumer).
+  Repository interfaces live in `archive.ts` and `community.ts`, not in `ports.ts`.
+- Adapters: `createDemoRepositories` (`src/infrastructure/demo.ts:29`, backed by `DemoStore` in `demo-store.ts`) and
+  `createSupabaseRepositories` (`src/infrastructure/supabase.ts:29`, plus `createCommunityRepository` in `supabase-community.ts:11`).
+- **There is no composition root.** `src/components/archive-app.tsx` imports both adapters, reads
+  `process.env.NEXT_PUBLIC_*` (line 30), and constructs `new ArchiveService(...)` in several places
+  (demo at ~line 42, Supabase at ~line 53, demo reset at ~line 85). `components/auth.tsx` and `archive-app.tsx` use the
+  concrete `SupabaseClient`; there is no `AuthPort`.
+- Config: `archiveConfiguration()` (`src/lib/archive-config.ts:4`) is pure and is called from both `archive-app.tsx` and
+  `src/app/api/health/route.ts`.
+- **[code, stale against DB]** The domain still models `Community`, `ArchiveEvent.communityId/visibility`,
+  private `Person` (`visibility: 'private'`), `Attendance` (private person links) and `UserTag`
+  (`src/domain/archive.ts:10-12`, `src/domain/community.ts:2-7`). The Supabase adapter queries `event_people`,
+  `event_user_tags`, `memberships` and sends `owner_id` for people (`supabase.ts:35`, `supabase-community.ts:14,20`,
+  `supabase.ts:13`). Those tables and columns were removed or renamed by the shared-space migration, so **Supabase
+  mode in code does not work against the current migrations** until step b. Demo mode is unaffected.
 
-One local snapshot at `tbellini.community.v2` simulates Sam and Alex with a member selector. This is behavior demonstration, not a security boundary: anyone with browser storage access can inspect all demo records. Provider reads hide private people/attendance by selected owner; hosted privacy relies on Auth/RLS instead. If v2 is absent, a valid `tbellini.archive.v1` snapshot is converted to community events authored by Sam, with private people/attendance retained and no invented tags/RSVPs. The v1 key remains for recovery. Snapshot decoding validates references and unique IDs before writing; corrupt v2/legacy records and failed storage writes surface errors rather than being overwritten with samples. Reset deliberately replaces v2 with sample records.
+## 5. Data model [DB]
 
-Views are Community events, Community calendar, My calendar, TBellini users, and My archive people. Event details expose community-visible user tags/RSVPs plus author-only corrections and private archive links. Tags and event authorship do not add an event to My calendar; only the current member's Going/Interested response does. No later archive capability is implemented by these views. Graph access is an administrative projection runner only; no user-facing traversal API is present.
+Authoritative: the migrations in order `20261006000000_archive.sql`, `…01_graph_lock.sql`, `…02_community.sql`,
+`…03_invitations.sql`, `20261017000000_shared_space.sql`. The last is forward-only; earlier files still show the old model.
 
-Paginated reads use 1,000-row ranges and stable unique ordering with authorization scope on every page. This matches the checked-in Supabase API max_rows=1000 setting. They load the full current dataset into memory and are not transactionally consistent across pages/tables; concurrent insert/delete can shift offset pages. Future large archives need explicit filtered/cursor query contracts, not just a larger cap.
+| Table | Key columns (after shared-space) | Notes |
+| --- | --- | --- |
+| `profiles` | `id` (= `auth.users.id`), `display_name`, timestamps | Created by the signup trigger. Presence means "can log in" (`has_profile()`, shared_space `:8-12`). Identity immutable (`…02:44-50`) |
+| `events` | `id`, `owner_id` (creator, -> `auth.users`), `title` (1-200), `description`, `starts_at`, `ends_at`, `timezone` (validated), `location`, `provenance` (`manual`), timestamps | `community_id` and `visibility` dropped (`:120-123`). Identity and creator immutable (`:124-131`). Note the naming: events use `owner_id`, people use `created_by` |
+| `people` | `id`, `display_name`, `notes`, `created_by` (-> `profiles`, nullable on profile delete), `member_id` (unique -> `profiles`), `provenance`, timestamps | The shared Person. People without accounts are Persons with null `member_id`. `owner_id` and `visibility` dropped (`:51-58`). Creator can become null, never be reassigned (`prevent_person_transfer`, `:60-69`) |
+| `event_person_tags` | PK (`event_id`, `person_id`), `tagged_by`, `created_at` | Replaces `event_people` and `event_user_tags` (data converted, old tables dropped, `:84-103`). A tag never implies an RSVP |
+| `event_rsvps` | PK (`event_id`, `user_id`), `status` (`going` or `interested`), timestamps | `community_id` dropped (`:105-110`). Identity immutable (`prevent_connection_transfer`, `:111-118`) |
+| `invitations` | `code` (`^[A-Z0-9-]{8,12}$`), `created_by`, `expires_at`, `used_at`, `used_by`, `person_id` | No client access at all (`…03:13-15`). `person_id` added at shared_space `:134` |
+| `person_claims` | PK (`person_id`, `claimant_id`), `claimant_id` unique | Claiming path 2, schema only (`:206-211`); no client UI |
+| `graph_outbox` | `id`, `owner_id`, `aggregate_type`, `aggregate_id`, `operation`, `payload`, `created_at`, `processed_at` | Service role only. Types allowed: `event, person, attendance, profile, user_tag, rsvp, tag` (`:16-18`); `attendance` and `user_tag` are retired but still permitted |
+| `graph_sync_lock` | single-lock table | Service role only (`…01:3-9`) |
+
+Removed by the shared-space migration: `communities`, `memberships`, `event_people`, `event_user_tags`, `is_community_member()` (`:102-103`, `:237-239`).
+
+Functions (all `set search_path = ''`):
+
+- `has_profile()`: used by every RLS policy.
+- `join_tbellini()`: after-insert trigger on `auth.users` (`auth_join_tbellini`, `…02:21`).
+- `create_invitation(expires_in_days default 7, for_person default null)`: executable by `authenticated` only.
+- `ensure_member_person(uuid)`: service role only; every member gets a Person (default; the body is the one place to change this).
+- `confirm_person_claim(claimed_person, claimant)`: creator of an unlinked Person confirms and merges.
+- `enqueue_graph_change()`, `touch_updated_at()`, `prevent_*_transfer()`: triggers.
+- `acquire_graph_sync_lock(uuid)`, `release_graph_sync_lock(uuid)`: service role only.
+
+## 6. Auth, RLS and invite flow
+
+### Row-level security [DB]
+
+All policies are `to authenticated`, so `anon` reads nothing. See `shared_space.sql:252-271`.
+
+| Table | Read | Insert | Update / delete |
+| --- | --- | --- | --- |
+| `profiles` | any profile holder | none (trigger only) | none (no policy) |
+| `events` | any profile holder | `owner_id = auth.uid()` | creator only |
+| `people` | any profile holder | `created_by = auth.uid()` | creator only; clients may update only `display_name`, `notes` (`:243-245`); `member_id` is never client-writable |
+| `event_person_tags` | any profile holder | `tagged_by = auth.uid()` **and** caller owns the event | delete by `tagged_by`; no update grant |
+| `event_rsvps` | any profile holder | own `user_id` | own `user_id` |
+| `person_claims` | any profile holder | own claim on an unlinked Person | claimant or the Person's creator may delete |
+
+Access is verified by pgTAP: `supabase/tests/archive_rls.sql`, `community_rls.sql`, `invitations_rls.sql`
+(67/67 passing per the project context; run by the `database` job in `.github/workflows/ci.yml`).
+The three test files predate the rename but run against the migrated schema.
+
+### Invite flow
+
+1. [DB] A member calls RPC `create_invitation` (code format `XXXX-XXXX`, alphabet without ambiguous characters, 1-30 days,
+   optionally naming an unlinked Person to claim).
+2. [code] `src/components/auth.tsx` calls `supabase.auth.signUp` with `invite_code` and `display_name` in user metadata (`auth.tsx:29-34`), and
+   `signInWithPassword` for login (`:46`). The code calls `create_invitation` from `supabase-community.ts:31`.
+3. [DB] The `auth.users` insert trigger `join_tbellini()` atomically marks the invite used; an invalid, used or expired
+   code raises and the signup fails. It then creates the profile and links the named Person (or creates a new one).
+4. [planned] Hosted Auth settings (email confirmation, site URL, redirect URLs) are unconfigured and unverified. A first-invite
+   seed script is also planned (the first user cannot sign up without an invite).
+
+There is no server-side session handling: the browser client (`createArchiveClient`, `supabase.ts:8`, `@supabase/ssr`
+`createBrowserClient`) holds the session, and there is no middleware or server component auth. [code]
+
+## 7. Outbox to graph flow
+
+1. [DB] Row triggers on `events`, `people`, `profiles`, `event_person_tags` and `event_rsvps` call `enqueue_graph_change()`
+   (`shared_space.sql:19-30`, `:95`; `…02:129-131`), inserting into `graph_outbox` in the same transaction as the change.
+2. [code] `scripts/sync-graph.mjs` (run manually via the `Replay archive graph` workflow, `workflow_dispatch` only) uses the
+   service role key to take `acquire_graph_sync_lock`, read up to 100 pending rows in `id` order, project each into Neo4j
+   (`scripts/project-graph.mjs`), set `processed_at`, then release the lock. `scripts/replay-outbox.mjs` holds the replay loop.
+3. Neo4j is a replayable projection. Postgres stays authoritative; the app never reads Neo4j.
+4. **[code, stale]** The projector still maps only `event`, `person`, `profile`, `attendance`, `user_tag`, `rsvp` and scopes by
+   `community_id` (`project-graph.mjs:6-27`). It does not handle the new `tag` type and will throw `Unsupported graph aggregate type`
+   if a `tag` row is replayed. **[planned]** Phase 1 step c (deferrable past go-live because Neo4j is optional).
+
+## 8. Run modes and environment variables
+
+`NEXT_PUBLIC_ARCHIVE_MODE` selects the mode (`src/lib/archive-config.ts:5-11`):
+
+| Value | Behaviour [code] |
+| --- | --- |
+| `demo` | Data in browser `localStorage` (key `tbellini.community.v2`, `demo-store.ts:5`), two seeded demo users, no network |
+| `supabase` | Real mode. Requires URL and publishable key, valid http(s) URL; otherwise a configuration error |
+| unset | `demo` when `NODE_ENV` is not `production`; `unconfigured` error in production |
+| anything else | `unconfigured` error |
+
+`GET /api/health` reports `ok` or `configuration_required` from configuration only; it does not contact Supabase
+(`src/app/api/health/route.ts:2`). **[planned]** Extend it to ping Supabase in Phase 2.
+
+| Variable | Used by | Notes |
+| --- | --- | --- |
+| `NEXT_PUBLIC_ARCHIVE_MODE` | app, health route | Build-time, browser-visible. Rebuild after changing |
+| `NEXT_PUBLIC_SUPABASE_URL` | app, health route, `sync-graph.mjs` | Public |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | app, health route | Public; RLS and the user session enforce access |
+| `SUPABASE_SERVICE_ROLE_KEY` | `sync-graph.mjs` only | Secret; never `NEXT_PUBLIC_`, never on Vercel |
+| `NEO4J_URI`, `NEO4J_USERNAME`, `NEO4J_PASSWORD`, `NEO4J_DATABASE` | `sync-graph.mjs` only | Secrets (database defaults to `neo4j`) |
+
+Template: `.env.example`. In the graph workflow the URL comes from `vars.SUPABASE_URL` and the secrets from GitHub
+`production` environment secrets.
+
+Local verification commands (`package.json`): `npm run lint`, `typecheck`, `test` (vitest plus node tests for graph scripts and
+the worker), `build`; the `database` CI job runs `supabase db reset` and `supabase test db`.
+
+## 9. Known architectural debt
+
+All [code] unless noted; fixes are scheduled for Phase 1 step b.
+
+- No composition root; `archive-app.tsx` owns adapter selection, env reads and service construction (see section 4).
+- No `AuthPort`; `auth.tsx` and `archive-app.tsx` depend on the concrete `SupabaseClient`.
+- `MediaStorage` and `GraphProjection` in `ports.ts` are unused.
+- Very long lines in source (for example `src/infrastructure/demo-store.ts:19`, about 983 characters).
+- Tag and RSVP guards are duplicated between the demo and Supabase community adapters, and adapter behavioural parity is unverified.
+- Naming inconsistency: `events.owner_id` versus `people.created_by` [DB]; step b may rename.
+- The outbox check constraint still permits retired types `attendance` and `user_tag` [DB]; step c retires them.
+- The data-migrating paths of the shared-space migration (Person backfill, conversion of `event_people` and `event_user_tags`)
+  were never tested on a non-empty database [DB].
+- Real-mode flows have never run against a hosted Supabase project.
