@@ -131,7 +131,7 @@ Graph node keys changed with the shared-space model (`event:<id>`, `person:<id>`
 
 ## Workflow behavior and health endpoints
 
-`.github/workflows/ci.yml` runs on pull requests and pushes to `site-code` (the repository default branch today; the production branch is `main` and `site-code` is the legacy Jekyll site, so the trigger is to move to `main`, plan step 2.11). Its app job performs npm clean install, lint, types, domain/runtime/adapter tests, graph/replay/worker tests and build on Node.js 22. Its independent database job starts local Docker-backed Supabase, resets the local database, runs SQL tests and stops it; no hosted secrets are needed. No GitHub-hosted run was verified in this implementation session.
+`.github/workflows/ci.yml` runs on pull requests and pushes to `main` (the production branch; `site-code` is the legacy Jekyll site and is no longer a trigger). Its app job performs npm clean install, lint, types, domain/runtime/adapter tests, graph/replay/worker tests and build on Node.js 22. Its independent database job starts local Docker-backed Supabase, resets the local database, runs SQL tests and stops it; no hosted secrets are needed. No GitHub-hosted run was verified in this implementation session.
 
 `graph-sync.yml` and `cloudflare.yml` are manual dispatch only, opt-in, production-environment jobs with separate concurrency groups and `cancel-in-progress: false`. The graph runner also enforces a database mutex, so local/CI overlap fails. No workflow deploys Supabase migrations or Neo4j hosting, and none creates infrastructure. Apply reviewed database migrations through the operator procedure above. Vercel deploys via its Git integration.
 

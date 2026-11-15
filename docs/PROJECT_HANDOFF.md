@@ -117,5 +117,5 @@ Dependency review found zero production vulnerabilities and five high developmen
 1. Finish the local-stack browser run, merge `feature/shared-space-db` into `feature/base-tbellini-site`, then, with explicit user approval, provision: Supabase project and `db push`, hosted Auth settings, first-invite seeding, Vercel project and env vars, live two-account smoke test, DNS. Order and status: `plans/STATUS.md`.
 2. Add automated browser regressions for auth transitions, forms, calendars, member switching, claims and error recovery; review keyboard/mobile/accessibility behavior. Target components/adapters in the source map rather than rewriting the app.
 3. Verify actual Neo4j projection/retry/delete/rebuild in staging; extend runner orchestration coverage against real providers as needed, then choose explicit reconciliation/monitoring before enabling schedules.
-4. Resolve development dependency advisories compatibly; validate lockfile/install/CI again. (`ci.yml` push filter targets the default branch `site-code`.)
+4. Resolve development dependency advisories compatibly; validate lockfile/install/CI again. (`ci.yml` push filter targets `main`.)
 5. Establish backups, queue/lock monitoring, release/rollback practices and operational ownership. Only after M0 acceptance begin M1 places/event enrichment via new cohesive contracts/modules; R2/media starts in M2.
