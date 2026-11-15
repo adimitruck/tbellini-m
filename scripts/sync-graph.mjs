@@ -29,7 +29,10 @@ const processed = await replayOutbox({
     const constraints = await readFile(new URL('../neo4j/constraints.cypher', import.meta.url), 'utf8');
     for (const statement of constraints.split(';').map((part) => part.trim()).filter(Boolean)) await driver.executeQuery(statement, {}, { database });
   },
-  async project(row) { await projectGraphRow(driver, database, row); },
+  async project(row) {
+    const outcome = await projectGraphRow(driver, database, row);
+    if (outcome.status === 'skipped') console.warn(`Skipped outbox ${row.id} (${row.aggregate_type}): ${outcome.reason}`);
+  },
   async close() { await driver.close(); },
 }, randomUUID());
 console.info(`Projected ${processed} archive changes.`);

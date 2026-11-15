@@ -1,37 +1,57 @@
-const TBELLINI = '00000000-0000-4000-8000-000000000001';
+import {
+  AGGREGATE, BASE_LABEL, EDGE, EDGE_AGGREGATE, NODE_LABEL, OPERATION, RETIRED_AGGREGATE_REASON, nodeKey,
+} from './graph-schema.mjs';
 
-/** Replay both legacy private rows and the forward community migration snapshot. */
-export async function projectGraphRow(driver, database, row) {
+const skipped = (reason) => ({ status: 'skipped', reason });
+const projected = { status: 'projected' };
+
+async function projectEdge(driver, database, row, spec) {
   const p = row.payload;
-  const communityId = p.community_id ?? (row.aggregate_type === 'profile' ? TBELLINI : null);
-  const privateKey = `${row.owner_id}:${row.aggregate_type}:${row.aggregate_id}`;
-  const key = row.aggregate_type === 'event' && communityId ? `${communityId}:event:${row.aggregate_id}` : row.aggregate_type === 'profile' ? `${TBELLINI}:profile:${p.id}` : privateKey;
-  const params = { key, ownerId: row.owner_id, communityId };
-  if (['attendance', 'user_tag', 'rsvp'].includes(row.aggregate_type)) {
-    const privateAttendance = row.aggregate_type === 'attendance';
-    params.eventKey = `${communityId ?? row.owner_id}:event:${p.event_id}`;
-    params.personKey = privateAttendance ? `${row.owner_id}:person:${p.person_id}` : `${communityId}:profile:${p.user_id}`;
-    params.visibility = privateAttendance ? 'private' : 'community';
-    params.status = p.status ?? null;
-    const relationship = privateAttendance ? 'ATTENDED' : row.aggregate_type === 'user_tag' ? 'TAGGED_IN' : 'RSVP';
-    const endpointScope = privateAttendance ? 'ownerId:$ownerId' : 'communityId:$communityId';
-    const query = row.operation === 'delete'
-      ? `MATCH (p:ArchiveEntity {key:$personKey,${endpointScope}})-[r:${relationship}]->(e:ArchiveEntity {key:$eventKey}) DELETE r`
-      : `MATCH (p:ArchiveEntity {key:$personKey,${endpointScope}}), (e:ArchiveEntity {key:$eventKey}) MERGE (p)-[r:${relationship}]->(e) SET r.ownerId=$ownerId,r.communityId=$communityId,r.visibility=$visibility,r.status=$status RETURN count(r) AS count`;
-    const result = await driver.executeQuery(query, params, { database });
-    if (row.operation !== 'delete' && result.records[0]?.get('count').toNumber() !== 1) throw new Error('Missing graph endpoint; leave outbox pending and repair projection.');
-  } else if (row.operation === 'delete') {
-    await driver.executeQuery('MATCH (n:ArchiveEntity {key:$key,ownerId:$ownerId}) DETACH DELETE n', params, { database });
-  } else {
-    const labels = { event: 'Event', person: 'Person', profile: 'Profile' };
-    const label = labels[row.aggregate_type];
-    if (!label) throw new Error(`Unsupported graph aggregate type: ${row.aggregate_type}`);
-    if (row.aggregate_type === 'event' && communityId) {
-      // Migration snapshot removes the earlier private event node; private links are requeued afterwards.
-      await driver.executeQuery('MATCH (legacy:ArchiveEntity {key:$legacyKey,ownerId:$ownerId}) DETACH DELETE legacy', { ...params, legacyKey: privateKey }, { database });
-    }
-    await driver.executeQuery(`MERGE (n:ArchiveEntity:${label} {key:$key}) SET n.ownerId=$ownerId,n.communityId=$communityId,n.visibility=$visibility,n.id=$id,n.title=$title,n.updatedAt=$updatedAt`, {
-      ...params, visibility: communityId ? 'community' : 'private', id: p.id, title: p.title ?? p.display_name, updatedAt: p.updated_at,
-    }, { database });
+  const params = {
+    fromKey: nodeKey(spec.from, p[spec.fromField]), eventKey: nodeKey(AGGREGATE.EVENT, p.event_id), status: p.status ?? null,
+  };
+  const match = `(a:${BASE_LABEL} {key:$fromKey})-[r:${spec.edge}]->(e:${BASE_LABEL} {key:$eventKey})`;
+  if (row.operation === OPERATION.DELETE) {
+    await driver.executeQuery(`MATCH ${match} DELETE r`, params, { database });
+    return projected;
   }
+  const query = `MATCH (a:${BASE_LABEL} {key:$fromKey}), (e:${BASE_LABEL} {key:$eventKey}) `
+    + `MERGE (a)-[r:${spec.edge}]->(e) SET r.status=$status RETURN count(r) AS count`;
+  const result = await driver.executeQuery(query, params, { database });
+  if (result.records[0]?.get('count').toNumber() !== 1) {
+    throw new Error('Missing graph endpoint; leave outbox pending and repair projection.');
+  }
+  return projected;
+}
+
+/** Profile-IS-Person: a Person with member_id is the same human as that Profile. Order-independent. */
+async function projectIdentity(driver, database, personKey, memberId) {
+  await driver.executeQuery(`MATCH (:${BASE_LABEL} {key:$personKey})<-[r:${EDGE.IS}]-(:${BASE_LABEL}) DELETE r`, { personKey }, { database });
+  if (!memberId) return;
+  const query = `MATCH (person:${BASE_LABEL} {key:$personKey}) `
+    + `MERGE (profile:${BASE_LABEL}:${NODE_LABEL[AGGREGATE.PROFILE]} {key:$profileKey}) MERGE (profile)-[:${EDGE.IS}]->(person)`;
+  await driver.executeQuery(query, { personKey, profileKey: nodeKey(AGGREGATE.PROFILE, memberId) }, { database });
+}
+
+async function projectNode(driver, database, row) {
+  const type = row.aggregate_type;
+  const key = nodeKey(type, row.aggregate_id);
+  if (row.operation === OPERATION.DELETE) {
+    await driver.executeQuery(`MATCH (n:${BASE_LABEL} {key:$key}) DETACH DELETE n`, { key }, { database });
+    return projected;
+  }
+  const p = row.payload;
+  const query = `MERGE (n:${BASE_LABEL}:${NODE_LABEL[type]} {key:$key}) SET n.id=$id,n.title=$title,n.updatedAt=$updatedAt`;
+  await driver.executeQuery(query, { key, id: row.aggregate_id, title: p.title ?? p.display_name ?? null, updatedAt: p.updated_at ?? null }, { database });
+  if (type === AGGREGATE.PERSON) await projectIdentity(driver, database, key, p.member_id);
+  return projected;
+}
+
+/** Project one outbox row. Returns {status:'projected'} or {status:'skipped', reason}; throws only on real failures. */
+export async function projectGraphRow(driver, database, row) {
+  const type = row.aggregate_type;
+  if (Object.hasOwn(RETIRED_AGGREGATE_REASON, type)) return skipped(RETIRED_AGGREGATE_REASON[type]);
+  if (Object.hasOwn(EDGE_AGGREGATE, type)) return projectEdge(driver, database, row, EDGE_AGGREGATE[type]);
+  if (Object.hasOwn(NODE_LABEL, type)) return projectNode(driver, database, row);
+  return skipped(`unknown aggregate type: ${type}`);
 }
