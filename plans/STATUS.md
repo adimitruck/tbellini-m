@@ -2,11 +2,11 @@
 
 Update this file after every completed step, commit, or decision. `plans/mvp-go-live.md` stays stable and is revised only by explicit replan.
 
-Last updated: 2026-11-14 (steps 0-1e, 2.1, 2.6 and D1 done; Phase 2 replanned)
+Last updated: 2026-11-14 (no-approval Phase 2 work done: 2.0 local spike, 2.10, 2.11 trigger, 2.12, scripts and deploy.yml written; all hosted runs pending approval)
 
 ## Next action
 1. Merge `feature/shared-space-db` into `feature/base-tbellini-site` (if not already merged).
-2. Run the no-approval Phase 2 work in this order: spike 2.0 (local stack), then 2.11 (verify push access to origin `adimitruck/tbellini-m`, move CI triggers from `site-code` to `main`), 2.10 (`emailRedirectTo`), 2.12 (justfile recipes), and write the scripts and `deploy.yml` (2.2, 2.4, 2.5, 2.9).
+2. No-approval Phase 2 work is done (see Steps). Remaining for the user: decide `SUPABASE_ORGANIZATION_ID` and `DEPLOY_ENABLED` handling, confirm the UNCONFIRMED API shapes (spike findings), open the PR into `main`.
 3. Ask the user for approval before running anything that provisions or writes externally (2.2, 2.3, 2.4, 2.5, 2.5b, 2.9 first run, 2.8), then the live smoke test (2.7).
 4. Open question: the generated invite code is shown only behind a Copy button, not as text.
 
@@ -41,15 +41,15 @@ UNCONFIRMED (needs a hosted project or network access to docs; do not assume):
 | 1e | Docs to shared model | done | 4420f00 | grep for community/membership/private people over the in-scope docs; examples checked against source | 2026-11-14 |
 | 2.1 | First-invite seeding script and RUNBOOK | done | 70c4c90 (script); 4420f00 (RUNBOOK) | node tests (seed-invite.test.mjs); `just seed-invite confirm=hosted` documented; not run against hosted | 2026-11-14 |
 | 2.0 | Spike: config push, Management API, redirect wildcard, createUser metadata, Vercel env calls | partial (local items 1, 3, 4 done; items 2, 5 and hosted push UNCONFIRMED) | docs(plans) spike commit | local stack, CLI 2.119.0 | 2026-11-14 |
-| 2.2 | Bootstrap script, then Supabase and Vercel projects [APPROVAL to run] | todo | | | |
+| 2.2 | Bootstrap script, then Supabase and Vercel projects [APPROVAL to run] | script done, run pending | 5f34f3b | node tests with fake clients; dry run default; Management API/Vercel endpoints UNCONFIRMED; needs `SUPABASE_ORGANIZATION_ID` (decision) | 2026-11-14 |
 | 2.3 | Migrations via deploy.yml [APPROVAL first run] | todo | | | |
-| 2.4 | configure-auth script, then hosted Auth config [APPROVAL to run] | todo | | | |
-| 2.5 | seed-member script (Justin Fischman via env vars), then seed [APPROVAL to run] | todo | | | |
+| 2.4 | configure-auth script, then hosted Auth config [APPROVAL to run] | script done, run pending | 5f34f3b | node tests with fake API; Management API field names UNCONFIRMED | 2026-11-14 |
+| 2.5 | seed-member script (Justin Fischman via env vars), then seed [APPROVAL to run] | script done, run pending | 5f34f3b | node tests; behavior matches local-stack spike (invitation first, then createUser); not run end to end | 2026-11-14 |
 | 2.5b | Vercel settings: Git integration, Node 22, env vars, Authentication note [APPROVAL] | todo | | | |
-| 2.9 | deploy.yml (db push, configure-auth, seed, health) [APPROVAL first run] | todo | | | |
-| 2.10 | App passes `emailRedirectTo` from current origin | todo | | | |
-| 2.11 | Verify origin push access; CI triggers to `main`; PR to `main` | todo | | | |
-| 2.12 | justfile recipes for the new steps | todo | | | |
+| 2.9 | deploy.yml (db push, configure-auth, seed, health) [APPROVAL first run] | file done, first run pending | 5f34f3b | names checked against `hosted-config.mjs` by a node test; gated by `vars.DEPLOY_ENABLED == 'true'`; not run | 2026-11-14 |
+| 2.10 | App passes `emailRedirectTo` from current origin | done | f6901fe | lint, tsc, 116 vitest, node tests, build | 2026-11-14 |
+| 2.11 | Verify origin push access; CI triggers to `main`; PR to `main` | CI trigger done; PR not opened | 5819e6d | access confirmed earlier (permissions.push=true); PR to `main` still to open | 2026-11-14 |
+| 2.12 | justfile recipes for the new steps | done | 5f34f3b | `just --dry-run` renders; `just bootstrap` without confirm refuses; also fixed `confirm=hosted` form (just passes it as one positional value) | 2026-11-14 |
 | 2.6 | Health ping to Supabase | done | 70c4c90 | `tests/health.test.ts`; not run against a live project | 2026-11-14 |
 | 2.7 | Live smoke test | todo | | | |
 | 2.8 | Custom domain and Cloudflare DNS (deferred until a domain exists) [APPROVAL] | deferred | | | |

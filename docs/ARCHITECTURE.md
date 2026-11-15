@@ -56,7 +56,7 @@ Hosting status:
 | `src/infrastructure/` | Adapters. Demo: `demo.ts`, `demo-store.ts`, `demo-auth.ts`, `demo-claims.ts`, `demo-seed.ts`, `demo-migration.ts`. Supabase: `supabase.ts` (barrel), `supabase-repositories.ts`, `supabase-auth.ts`, `supabase-schema.ts`. Shared: `read-all.ts` |
 | `src/lib/` | `archive-config.ts` (run-mode resolution), `archive-runtime.ts` (composition root), `health.ts` (readiness report and Supabase probe), `latest-request.ts` |
 | `supabase/migrations/`, `supabase/tests/` | Schema, RLS, functions; pgTAP tests |
-| `scripts/` | Outbox replay and graph projection (`sync-graph.mjs`, `replay-outbox.mjs`, `project-graph.mjs`, `graph-schema.mjs`) and first-invite seeding (`seed-invite.mjs`, `seed-invite-core.mjs`) |
+| `scripts/` | Outbox replay and graph projection (`sync-graph.mjs`, `replay-outbox.mjs`, `project-graph.mjs`, `graph-schema.mjs`) first-invite seeding (`seed-invite.mjs`, `seed-invite-core.mjs`), and hosted setup (`hosted-config.mjs` names and Auth settings, `bootstrap-hosted*.mjs`, `configure-auth*.mjs`, `seed-member*.mjs`, `deploy-check*.mjs`; run by `.github/workflows/deploy.yml`) |
 | `justfile` | Task runner: setup, run, checks, local database, hosted operations (see `docs/RUNBOOK.md`) |
 | `neo4j/constraints.cypher`, `cloudflare/` | Graph constraint; optional edge worker |
 | `tests/` | Vitest suites; `tests/contract.test.ts` runs one behavioural contract against the demo adapter and the Supabase adapter (over an in-memory fake PostgREST in `tests/support/fake-database.ts`) |

@@ -15,6 +15,11 @@ The `justfile` is the primary interface; run `just` to list recipes (install [ju
 | `just db-start`, `db-stop`, `db-reset`, `db-test`, `db-diff` | Local Supabase stack, reset (destroys local data only), pgTAP tests, schema diff; `just ci` is `check` plus reset and test |
 | `just seed-invite-local` | Creates an invitation on the local stack |
 | `just seed-invite confirm=hosted` | Creates the first invitation on the hosted project (see below) |
+| `just bootstrap confirm=hosted [mode=apply]` | One-time: finds or creates the Supabase and Vercel projects and writes env vars. Dry run unless `mode=apply` |
+| `just configure-auth confirm=hosted [mode=apply]` | Prints the diff of hosted Auth settings (Site URL, redirects, SMTP); writes only with `mode=apply` |
+| `just seed-member confirm=hosted` | Creates the first member from `SEED_MEMBER_NAME` / `SEED_MEMBER_EMAIL`, then sends the password reset email |
+| `just deploy-check` | GETs `SITE_URL` plus `/api/health` with retries (read-only) |
+| `just access-check` | Read-only: GitHub permissions of this clone and a `git push --dry-run` |
 | `just db-push confirm=hosted` | Pushes migrations to the linked hosted project |
 | `just graph-sync confirm=hosted`, `replay-outbox confirm=hosted` | Project the outbox into Neo4j using `.env.local` |
 | `just health` | GETs the running app's `/api/health` |
@@ -110,6 +115,16 @@ insert into public.invitations(code, expires_at) values ('ABCD-2345', now() + in
 ```
 
 Codes are 8-12 uppercase letters, digits or dashes; the signup form uppercases input. Inspect use with `select code, created_by, expires_at, used_at, used_by from public.invitations`. Demo mode generates random codes for display only; it has no signup flow to consume them. After the first member signs up, that member invites the others.
+
+## Hosted configuration scripts and `deploy.yml`
+
+All hosted names (variables, secrets, which script needs which) live in `scripts/hosted-config.mjs`; no value is committed. Set them as GitHub Environment variables or secrets for `preview` and `production`, or in the ignored `.env.local` for local runs. Every script is dry-run by default (`--apply`, or `mode=apply` in the recipe, writes) and prints names, never values. Hosted behavior is only unit-tested with injected fakes; nothing here has been run against a hosted project, and the Supabase Management API and Vercel endpoint shapes are UNCONFIRMED (see `plans/STATUS.md`, spike 2.0).
+
+- `bootstrap`: Supabase project in `SUPABASE_REGION`, Vercel project linked to the repository, `NEXT_PUBLIC_*` values in Vercel, project ref and URL in the GitHub Environments. Needs `SUPABASE_ORGANIZATION_ID` (not in the original plan; the Management API requires an organization to create a project).
+- `configure-auth`: sets `SITE_URL`, the redirect allow-list (`SITE_URL` plus `EXTRA_REDIRECT_URLS`, for example `https://*-<scope>.vercel.app/**`, syntax confirmed on the local stack), confirmations on, signups on (the invite gate is the database trigger), `SMTP_*` and the minimum password length. Changing the domain later means changing `SITE_URL` and re-running it.
+- `seed-member`: the signup trigger also guards the Admin API, so the script inserts one invitation, calls `createUser` with `display_name` and `invite_code` in `user_metadata`, then sends a password reset email to `SITE_URL`. An existing user is left unchanged and the spare invitation is deleted.
+- `.github/workflows/deploy.yml` (push to `main` or manual dispatch; GitHub Environment `production`, or the chosen one): `supabase link` and `db push`, `configure-auth`, `seed-member`, then the health check. It does nothing until the variable `DEPLOY_ENABLED` equals `true`.
+- `just` accepts both `confirm=hosted` and `hosted` after the recipe name.
 
 ## Neo4j projection
 
