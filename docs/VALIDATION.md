@@ -4,7 +4,7 @@ This records checks executed so far: the shared-space verification first, then t
 
 ## Shared-space verification — November 14, 2026
 
-Branch `feature/shared-space-db`, commits `021331b` (database), `b358f28` (domain, adapters, composition root), `5c28c8f` (graph), `70c4c90` (seed script, health ping), `1efc757` (People page, picker, claim flow). The sections below this one describe the superseded community model and are kept as history.
+Branch `feature/shared-space-db` (since merged into `feature/base-tbellini-site`), commits `021331b` (database), `b358f28` (domain, adapters, composition root), `5c28c8f` (graph), `70c4c90` (seed script, health ping), `1efc757` (People page, picker, claim flow). The sections below this one describe the superseded community model and are kept as history.
 
 | Check | Recorded result | What it establishes |
 | --- | --- | --- |

@@ -2,10 +2,10 @@
 
 Update this file after every completed step, commit, or decision. `plans/mvp-go-live.md` stays stable and is revised only by explicit replan.
 
-Last updated: 2026-11-14 (no-approval Phase 2 work done: 2.0 local spike, 2.10, 2.11 trigger, 2.12, scripts and deploy.yml written; all hosted runs pending approval)
+Last updated: 2026-11-14 (no-approval Phase 2 work done; doc staleness from the interrupted session fixed: RUNBOOK, VALIDATION, PROJECT_HANDOFF, this file; lint, tsc, 116 vitest, 45 node tests pass; all hosted runs pending approval)
 
 ## Next action
-1. Merge `feature/shared-space-db` into `feature/base-tbellini-site` (if not already merged).
+1. Done: `feature/shared-space-db` is merged into `feature/base-tbellini-site` (branch no longer exists). Open the PR into `main`.
 2. No-approval Phase 2 work is done (see Steps). Remaining for the user: decide `SUPABASE_ORGANIZATION_ID` and `DEPLOY_ENABLED` handling, confirm the UNCONFIRMED API shapes (spike findings), open the PR into `main`.
 3. Ask the user for approval before running anything that provisions or writes externally (2.2, 2.3, 2.4, 2.5, 2.5b, 2.9 first run, 2.8), then the live smoke test (2.7).
 4. Open question: the generated invite code is shown only behind a Copy button, not as text.
@@ -40,7 +40,7 @@ UNCONFIRMED (needs a hosted project or network access to docs; do not assume):
 | 1d | UI: People page, tag picker, labels, claim UI | done | 1efc757 | lint, tsc, vitest, build pass; local-stack browser e2e PASS (VALIDATION.md); invite input fix bb142a6 | 2026-11-14 |
 | 1e | Docs to shared model | done | 4420f00 | grep for community/membership/private people over the in-scope docs; examples checked against source | 2026-11-14 |
 | 2.1 | First-invite seeding script and RUNBOOK | done | 70c4c90 (script); 4420f00 (RUNBOOK) | node tests (seed-invite.test.mjs); `just seed-invite confirm=hosted` documented; not run against hosted | 2026-11-14 |
-| 2.0 | Spike: config push, Management API, redirect wildcard, createUser metadata, Vercel env calls | partial (local items 1, 3, 4 done; items 2, 5 and hosted push UNCONFIRMED) | docs(plans) spike commit | local stack, CLI 2.119.0 | 2026-11-14 |
+| 2.0 | Spike: config push, Management API, redirect wildcard, createUser metadata, Vercel env calls | partial (local items 1, 3, 4 done; items 2, 5 and hosted push UNCONFIRMED) | a90ba81 | local stack, CLI 2.119.0 | 2026-11-14 |
 | 2.2 | Bootstrap script, then Supabase and Vercel projects [APPROVAL to run] | script done, run pending | 5f34f3b | node tests with fake clients; dry run default; Management API/Vercel endpoints UNCONFIRMED; needs `SUPABASE_ORGANIZATION_ID` (decision) | 2026-11-14 |
 | 2.3 | Migrations via deploy.yml [APPROVAL first run] | todo | | | |
 | 2.4 | configure-auth script, then hosted Auth config [APPROVAL to run] | script done, run pending | 5f34f3b | node tests with fake API; Management API field names UNCONFIRMED | 2026-11-14 |
