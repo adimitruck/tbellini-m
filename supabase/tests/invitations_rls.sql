@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(14);
+select plan(18);
 insert into public.invitations(code,created_at,expires_at) values('SEED-AAAA',now(),now()+interval '1 day'),('OLD1-AAAA',now()-interval '2 days',now()-interval '1 minute');
 select throws_ok($q$insert into auth.users(id) values('33333333-3333-4333-8333-333333333333')$q$,'23514',null,'signup without an invite code is rejected');
 select throws_ok($q$insert into auth.users(id,raw_user_meta_data) values('33333333-3333-4333-8333-333333333333','{"invite_code":"NOPE-NOPE"}')$q$,'23514',null,'unknown invite code is rejected');
@@ -8,7 +8,13 @@ select throws_ok($q$insert into auth.users(id,raw_user_meta_data) values('333333
 select lives_ok($q$insert into auth.users(id,raw_user_meta_data) values('11111111-1111-4111-8111-111111111111','{"invite_code":"seed-aaaa","display_name":"Founder"}')$q$,'valid code (any case) admits a member');
 select is((select used_by from public.invitations where code='SEED-AAAA'),'11111111-1111-4111-8111-111111111111'::uuid,'invite records who used it');
 select throws_ok($q$insert into auth.users(id,raw_user_meta_data) values('22222222-2222-4222-8222-222222222222','{"invite_code":"SEED-AAAA"}')$q$,'23514',null,'used invite code cannot be reused');
-select is((select count(*) from public.memberships),1::bigint,'only the invited account joined');
+select is((select count(*) from public.profiles),1::bigint,'only the invited account joined');
+select is((select count(*) from public.people where member_id='11111111-1111-4111-8111-111111111111'),1::bigint,'a member without a named Person gets one automatically');
+insert into public.people(id,created_by,display_name) values('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee','11111111-1111-4111-8111-111111111111','Guest without account');
+insert into public.invitations(code,created_at,expires_at,person_id) values('NAME-AAAA',now(),now()+interval '1 day','eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee');
+select lives_ok($q$insert into auth.users(id,raw_user_meta_data) values('44444444-4444-4444-8444-444444444444','{"invite_code":"NAME-AAAA"}')$q$,'invite naming a Person admits a member');
+select is((select member_id from public.people where id='eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'),'44444444-4444-4444-8444-444444444444'::uuid,'the named Person is linked to the new member');
+select is((select count(*) from public.people where member_id='44444444-4444-4444-8444-444444444444'),1::bigint,'no duplicate Person is created for the linked member');
 set local role authenticated;
 select set_config('request.jwt.claim.sub','11111111-1111-4111-8111-111111111111',true);
 select throws_ok($q$select * from public.invitations$q$,'42501',null,'members cannot read invitations');
