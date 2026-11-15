@@ -1,0 +1,539 @@
+<project name="tbellini-m">
+  TBellini is a private, invite-only site for one friend group. Members record the events they
+  and others are going to, and build a shared archive around them: who was there, where it
+  happened, the music, and the memories attached to every event, place, and person.
+  Most events are music festivals and shows, so music is a first-class part of the archive.
+
+  The site is one shared space. Anyone with an account sees essentially everything; there is
+  no per-user private data, no public access, and no public feed. A user account exists mainly
+  so a person can log in (plus a display name so others know who they are).
+
+  How to maintain this file:
+  - Keep sections in this order; add new entities, views, or services as another
+    detail inside the matching section.
+  - Mark items with a status: [live] implemented in code, [partial] in code but incomplete or
+    broken, [planned] agreed roadmap, [proposed] an idea not yet decided,
+    [remove] still in code but no longer wanted (see the next-steps plan).
+  - The "Next steps plan" near the end is the working plan; update the phase status as work lands.
+    The living step log is plans/STATUS.md (plan: plans/mvp-go-live.md).
+  - Deep detail lives in docs/; this file is the overview. Last reviewed: 2026-11-14 on branch
+    feature/base-tbellini-site at commit b0de4bd (phases 0 and 1a-1e done; Phase 2 code-ready, nothing provisioned).
+
+  <goal>
+    - Let the group see, in one place, which events are coming up and who is Going or Interested.
+    - Turn past events into a lasting shared archive: places, artists and sets, photos, and memories,
+      all linked so any node (event, member, place, artist) shows its history.
+    - Make the music side central: what artists were seen, at which festival or show,
+      with whom, and the songs or sets that defined the moment.
+    - Keep it exclusive: only invited people can create an account; nothing is visible without signing in.
+  </goal>
+
+  <context>
+    - Status: the M0 skeleton (events, calendar, RSVPs, invite-only signup) plus the shared-space model
+      (phase 1: database, code, UI, graph projector, docs) is built and tested locally and in demo mode;
+      a local-stack browser e2e passed on 2026-11-14. Phase 2 (go live) is code-ready but NOT provisioned:
+      no hosted Supabase, Vercel, Cloudflare or Neo4j, no accounts, and no production data. Phase 2 was
+      replanned on 2026-11-14 (plans/mvp-go-live.md): scripted, env-var-driven provisioning; every provisioning
+      run needs the user's approval first (see plans/STATUS.md).
+    - The old community, membership, and private-people model is gone from the database (migration
+      20261017000000_shared_space.sql), code, UI, graph projector, and docs.
+    - Two run modes, chosen by NEXT_PUBLIC_ARCHIVE_MODE:
+      demo (browser localStorage, simulated members Sam and Alex) and supabase (real auth/data).
+    - Linear work stays inside the tbellini-m Linear project (capability parents labeled Feature,
+      User story children).
+    - Original static-site files index.html and web.css are historical; the app lives in src/app.
+    <detail name="Key documents">
+      PROJECT_MEMORY.md (product decisions, moved to the shared-space model), plans/mvp-go-live.md (stable plan)
+      and plans/STATUS.md (living step log), docs/ARCHITECTURE.md, docs/RUNBOOK.md, docs/ROADMAP.md, docs/PROJECT_HANDOFF.md,
+      docs/VALIDATION.md, docs/CONTRIBUTING.md, docs/conversations/ (original planning transcript).
+    </detail>
+  </context>
+
+  <stack>
+    - TypeScript 5.9, Next.js 16 (App Router), React 19, Node.js >=22.18 (package.json engines), npm.
+    - just (justfile) is the task runner: setup, dev, checks, database and hosted-ops recipes.
+    - Zod 4 for validation at every boundary (forms, returned DB rows, snapshots).
+    - Supabase JS 2.117 / SSR 0.12 for auth and data; neo4j-driver 6.2 for the graph runner.
+    - Vitest 4 plus node:test for scripts and worker; ESLint 9 with eslint-config-next.
+    - Plain CSS in src/app/globals.css with a warm palette (pink, lavender, mango, ink); serif
+      headings. Preserve this look.
+  </stack>
+
+  <integrations>
+    Every service below is configured in the repo, but none is provisioned or deployed yet.
+
+    <detail name="Vercel — app hosting">
+      Hosts the Next.js app through Vercel's Git integration (preview deploys per branch, production from
+      the main branch). Next.js preset, Node 22 (>=22.18 per engines), npm run build. Set the three NEXT_PUBLIC_* vars per
+      environment; they are baked in at build time, so rebuild after changes. App rollback means
+      redeploying the previous Vercel deployment. There is no separate deploy workflow.
+    </detail>
+    <detail name="Supabase — database, auth (source of truth)">
+      Postgres holds all authoritative data; Supabase Auth provides email/password accounts.
+      Row-level security (RLS) allows only signed-in members (a user with a profile) to read data,
+      and limits which rows each user may change (for example, only your own RSVP).
+      The browser uses the publishable key plus the user's session; the service-role key is used
+      only by the graph runner and admin tasks. Migrations live in supabase/migrations and only move
+      forward; SQL tests live in supabase/tests. The CLI is pinned at 2.119.0.
+    </detail>
+    <detail name="Neo4j — connection graph (derived)">
+      A rebuildable projection of entities and relationships, used for "how is this connected"
+      features (M3). Postgres triggers write changes to graph_outbox in the same transaction.
+      scripts/sync-graph.mjs replays them in order under a database mutex, using idempotent Cypher.
+      The app never depends on Neo4j being up, and the browser never queries it directly.
+      Neo4j Aura with TLS is the expected host. Not provisioned: the shared-space projector is built and
+      unit-tested (node tests) but has not run against a real Neo4j; a graph built by the old projector
+      needs a wipe and full replay because node keys changed.
+    </detail>
+    <detail name="Cloudflare — DNS, optional edge worker, future media">
+      DNS for the custom domain, pointing at Vercel (start with DNS-only records).
+      The worker tbellini-m-edge (cloudflare/) currently serves only GET /health.
+      Planned: R2 object storage for photos and video via server-issued upload URLs (M2), and
+      possibly Queues. The MediaStorage port exists; no binding exists yet.
+    </detail>
+    <detail name="GitHub Actions — CI and manual ops">
+      ci.yml runs on pull requests and on pushes to main, with an app job (lint, typecheck, test, build)
+      and a database job (local Supabase reset plus SQL tests). The main branch here is
+      site-code, which the push filter now targets. graph-sync.yml and cloudflare.yml run only on manual
+      dispatch, are gated by repository variables, and use the protected "production" environment.
+    </detail>
+    <detail name="Linear — roadmap and issues">
+      The tbellini-m project holds the M0–M5 roadmap. Check its current state before relying on the
+      historical claims in PROJECT_MEMORY.md, and align it with the next-steps plan below.
+    </detail>
+    <detail name="Spotify — music data [planned, phase 4]">
+      Chosen music provider (decision dated 2026-10-17). Uses the Spotify Web API from the server only (a Next.js route
+      or worker) with app client credentials, for artist and track search and metadata (name, image,
+      genres). Stores the Spotify ID on Artist and Track records; our own UUIDs stay the primary keys.
+      Embeds Spotify players on artist, event, and memory pages. Possible later: an event playlist and member Spotify
+      login. Secrets: SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET (server-only, never NEXT_PUBLIC_).
+      Setlists are not in Spotify; they are entered manually unless setlist.fm is added later.
+    </detail>
+  </integrations>
+
+  <architecture>
+    Layers (the dependency arrows point inward):
+    - Domain (src/domain): entities, Zod schemas, repository interfaces, ArchiveService
+      use cases, time handling. No SDK imports.
+    - Infrastructure (src/infrastructure): demo (localStorage) and Supabase adapters that
+      implement the same repository contracts; read-all pagination (1,000-row pages).
+    - Presentation (src/components, src/app): ArchiveApp chooses the provider and handles auth,
+      snapshot state, and guards against stale requests; view components only render and call callbacks.
+    - Ops scripts (scripts/): the graph outbox replay and Cypher projection, and seed-invite.mjs (creates the
+      first invitation), run with service credentials.
+    - Edge (cloudflare/): a reserved worker boundary.
+
+    Data flow: browser → ArchiveService (validate + permission check) → repository adapter →
+    Supabase (RLS re-checks) → triggers → graph_outbox → manual sync → Neo4j.
+    The app loads a whole snapshot (events, members, people, tags, RSVPs) and reloads it after each change.
+    There is no realtime yet.
+
+    <detail name="Extension pattern">
+      Each new capability adds: a domain contract and schema, an ArchiveService use case, a demo
+      adapter and a Supabase adapter, a forward migration with RLS and SQL tests, outbox types with
+      matching projector code and tests, and a UI view. Do not grow the event repository into
+      the whole archive; add cohesive modules (places, music, memories) that reference IDs.
+    </detail>
+  </architecture>
+
+  <data name="Entities — target model">
+    All records use UUID IDs and timestamps. Content records carry createdBy (the member who added
+    it) and provenance ('manual'). Times are ISO instants stored as timestamptz, plus the original
+    IANA timezone used for display and calendar grouping. All content is visible to every member.
+
+    <detail name="Member (profiles) [live]">
+      The login identity: id = the Supabase auth user id, plus displayName (1–200 characters). Email stays
+      in Supabase Auth and is never copied. Having a profile is what makes someone a member; there is no
+      separate community or membership record. Each user edits only their own name.
+      Every member automatically gets a linked Person (ensure_member_person), so people are one kind of
+      node whether or not they have an account.
+      Later: optional avatar, birth details (for astrology), and favorite artists.
+    </detail>
+    <detail name="Invitation (invitations) [live]">
+      Fields: code (8–12 uppercase letters, digits, dashes), created_by, expires_at, used_at, used_by, person_id
+      (optional: the invite names an existing Person to claim). Any member creates one from the Members view
+      through the create_invitation(expires_in_days, for_person) database function
+      (randomness from gen_random_uuid, single use, 1–30 days, default 7). Signup requires an unused,
+      unexpired code (entry is case-insensitive); the signup trigger (join_tbellini) consumes it atomically,
+      records who used it, then creates the profile and its Person (or links the named Person).
+      RLS is on, and clients have no table access.
+      Demo mode shows random codes (crypto.getRandomValues) for display only; it has no signup flow.
+      The first account's invite is seeded with `just seed-invite confirm=hosted` (scripts/seed-invite.mjs;
+      service-role key; `just seed-invite-local` for the local stack); the script is tested but has not
+      been run against a hosted project (docs/RUNBOOK.md, "Invite-only signup and the first account").
+    </detail>
+    <detail name="Event (events) [live]">
+      Fields: title (1–200 characters), description (up to 10k), startsAt, endsAt (optional, at or
+      after the start), timezone, location (free text up to 500 characters; becomes a Place in M1).
+      Any member can create events. Only the creator can edit or delete one (decided 2026-10-17).
+    </detail>
+    <detail name="Person (people) [live]">
+      A shared node for a real person: displayName, notes, createdBy (nullable if the creator's profile is
+      deleted), and memberId (unique; empty until they get an account). Anyone can add a person who doesn't
+      have an account (a friend, a partner). Every Member automatically gets a Person at signup
+      (ensure_member_person), so tags and attendance always point at Person. Claiming a non-member Person
+      works two ways: the invite names the Person (invitations.person_id), or the new member picks "this is me"
+      (person_claims) and the Person's creator confirms (confirm_person_claim RPC), which links the Person and
+      carries their history over. Only the creator edits a Person (clients may change only displayName and notes);
+      memberId is never client-writable. The claim UI (People page, person detail) is built.
+    </detail>
+    <detail name="Tag (event_person_tags) [live]">
+      Links an event to a Person who is part of it, with the field taggedBy, so people without accounts can be
+      tagged. Replaces event_people and event_user_tags (data converted, old tables dropped). Only the event's
+      creator can tag; a tag does NOT imply an RSVP.
+    </detail>
+    <detail name="RSVP (event_rsvps) [live]">
+      Links an event to a member with a status: going or interested (no row means no response).
+      Everyone sees all RSVPs; each user sets or clears only their own. This drives My calendar.
+    </detail>
+    <detail name="System tables [live]">
+      graph_outbox (ordered change and tombstone queue) and graph_sync_lock (singleton replay mutex).
+      Service role only.
+    </detail>
+    <detail name="Person claims (person_claims) [live]">
+      PK (person_id, claimant_id), claimant unique. A member requests a claim on an unlinked Person; the claimant
+      or the Person's creator may cancel; the creator confirms through confirm_person_claim.
+    </detail>
+    <detail name="Removed: Community, Membership, private Person and Attendance [done]">
+      The shared-space migration dropped communities, memberships, is_community_member, the events.community_id
+      and visibility columns, and merged the owner-private people and event_people into the shared Person and Tag.
+      The TBELLINI_COMMUNITY_ID constant, CommunityMembership and Attendance are gone from the code. There is one
+      group, and nothing is private per user. graph_outbox still permits the retired attendance and user_tag
+      types, which the projector skips with a logged reason.
+    </detail>
+  </data>
+
+  <data name="Relationships">
+    Current scope [live]:
+    - Member 1—* Event (createdBy)
+    - Member 1—1 Person (every Member gets a Person at signup; memberId set when someone signs up or claims an existing Person)
+    - Event *—* Person via Tag (taggedBy recorded; works for people without accounts)
+    - Event *—* Member via RSVP (status on the link; self-managed; RSVP needs an account)
+    - Member 1—* Invitation (created_by); Invitation 0..1—1 Member (used_by, set at signup); Invitation 0..1—1 Person (person_id: the Person it lets the new member claim)
+    - Person 0..*—1 claimant Member via person_claims (confirmed by the Person's creator)
+
+    Neo4j projection [live in code and tests, manual sync; not provisioned]:
+    - Nodes: ArchiveEntity:Event, ArchiveEntity:Profile, ArchiveEntity:Person (keys event:id, profile:id,
+      person:id; Person is shared).
+    - Edges: (Person)-[:TAGGED_IN]->(Event), (Profile)-[:RSVP {status}]->(Event),
+      (Profile)-[:IS]->(Person). The old private ATTENDED edge is removed (retired outbox types are skipped).
+    - Projected fields: IDs, title, display name, updatedAt, RSVP status. Never email.
+
+    Planned [proposed edge names]:
+    - Event -[:AT]-> Place; Event -[:EDITION_OF]-> Festival/Series; Event -[:PART_OF]-> Event (festival days)
+    - Performance -[:BY]-> Artist; Performance -[:AT]-> Event; Performance -[:PLAYED]-> Track
+    - Person -[:SAW]-> Performance; Person -[:WENT_TO]-> Event (confirmed attendance after the fact)
+    - Memory -[:ABOUT]-> Event | Person | Place | Artist | Performance; Memory -[:BY]-> Member
+    - Media -[:ATTACHED_TO]-> Event | Memory | Place | Performance
+    - Collection -[:CONTAINS]-> any node; Label -[:LABELS]-> any node
+  </data>
+
+  <data name="Planned entities [planned / proposed]">
+    These come from the roadmap (M1–M5) and the music-first direction. Fields are a starting sketch;
+    refine them when each phase begins. All are shared with every member.
+
+    <detail name="Place [planned M1]">
+      A venue or location (name, kind: venue/festival grounds/city/home, address or geo, timezone).
+      Replaces free-text event location; an event can have several places. Each place has a history of
+      events held there.
+    </detail>
+    <detail name="Festival / Series [planned M1; proposed name]">
+      A recurring festival or tour across years. Each yearly Event is an edition; a multi-day
+      festival can have child events (days, stages).
+    </detail>
+    <detail name="Attendance — went to [proposed M1]">
+      After an event, record who actually went (separate from the before-the-event Going RSVP). Points at
+      Person, so people without accounts have a history too. Any member can record that they went
+      themselves; the event creator can record it for others.
+    </detail>
+    <detail name="Artist [planned M2]">
+      A musician, band, or DJ: name, spotifyId, genres, image (from Spotify). Has a hub page showing
+      every time the group saw them.
+    </detail>
+    <detail name="Performance / Set [proposed M2]">
+      An artist playing at an event: stage, day, set time, optional setlist. The key link between Event
+      and Artist; the event's lineup is its list of performances.
+    </detail>
+    <detail name="Track / Playlist [proposed M2]">
+      Songs tied to performances, memories, or events (for example, "the song of the weekend"), stored with
+      spotifyId and embeddable; possibly a generated Spotify playlist per event.
+    </detail>
+    <detail name="Media [planned M2]">
+      Photos, video, and external links stored in R2 (via MediaStorage), with uploadedBy and capturedAt.
+      Attached to events, memories, places, or performances.
+    </detail>
+    <detail name="Memory [planned M3]">
+      A story, note, or moment written by a member, linked to one or more events, members, places,
+      artists, or performances, with optional media. The connected-memory core.
+    </detail>
+    <detail name="Collection, Label [planned M5]">
+      Member-made groupings (for example, "Summer 2025 run") and labels across the whole archive.
+    </detail>
+    <detail name="Astrology [planned M5]">
+      Astrology tied to members and dates (for example, birth charts or the sky at an event). Scope still to be defined.
+    </detail>
+    <detail name="Archive keeping [planned M5]">
+      Approximate dates (a new explicit model, not fake timestamps), provenance beyond 'manual',
+      historical import (past shows), incomplete-record cleanup, export.
+    </detail>
+  </data>
+
+  <access>
+    - Only invited people can create an account; anonymous visitors see nothing.
+    - Signed in = member = can read everything and add content.
+    - Edit and delete: only the person who created a record (decided 2026-10-17 for events and their tags).
+      By default the same rule applies to new content types (places, artists, memories, media) unless decided otherwise.
+    - RSVP: each member sets or clears only their own status.
+    - Profile: each member edits only their own display name.
+    - Invitations: any member can create one (decided 2026-10-17). There is no admin role.
+  </access>
+
+  <privacy>
+    - Everything is shared among members; nothing is public. Treat the whole archive as private to the group.
+    - Email addresses stay in Supabase Auth and are not shown in the UI or copied to Neo4j.
+    - Neo4j and backups hold group content; restrict their access to the operators.
+    - Demo mode is local to one browser and not a security boundary.
+    - Never log credentials.
+  </privacy>
+
+  <frontend name="Pages and views">
+    Single page app shell (src/app/page.tsx → ArchiveApp) with a sidebar nav, a top bar (mode badge,
+    sign-out, member switcher in demo), and the main content. Navigation uses view state, not URL routes.
+
+    <detail name="Sign in / Sign up [live]">
+      Email and password. Signup asks for a display name and an invite code (stored uppercase). If email
+      confirmation is required, the user is told to confirm, then sign in. No OAuth or magic link.
+    </detail>
+    <detail name="Events (default) [live]">
+      A time-ordered list of all events, shown as cards (date tile, title, time, location, RSVP counts).
+      Has a "+ Create event" button.
+    </detail>
+    <detail name="Calendar [live]">
+      A month grid of all events, grouped by the date in each event's recorded timezone; click an event to
+      open its details.
+    </detail>
+    <detail name="My calendar [live]">
+      The same grid, filtered to events where the current user is Going or Interested. Tags and
+      authorship never add events here. The empty state links to Events.
+    </detail>
+    <detail name="Event detail [live]">
+      Title, time, location, description, and creator. Shows your RSVP (Going / Interested / Clear),
+      tagged people, and who is Going or Interested. The creator also gets Edit, Delete, and a tag picker
+      that can choose any Person or add a new one.
+    </detail>
+    <detail name="Event form [live]">
+      Validated create and edit form with useful field errors; time input in the event's timezone.
+    </detail>
+    <detail name="Members [live]">
+      A member list, editing of your own display name, and "Invite New Members" (generate and copy an invite code,
+      optionally naming a Person to claim). Open: the generated code is shown only behind a Copy button, not as text.
+    </detail>
+    <detail name="People [live]">
+      A shared People page: every person, with or without an account, plus create, and edit by the creator.
+      Members show an "account" badge. Person detail has the claim flow ("this is me" request, creator confirms).
+      It may merge with Members later.
+    </detail>
+    <detail name="Error boundary and health [live]">
+      src/app/error.tsx offers route-level recovery; authenticated load errors offer Retry or Sign out.
+    </detail>
+    <detail name="Future views [planned / proposed]">
+      - Person page (M1): for members and non-members alike; events they went to or are going to, artists seen,
+        memories about them.
+      - Place page (M1): events held there over time, memories, media.
+      - Festival page (M1/M2): editions by year, lineups, who went each year.
+      - Artist page (M2): every performance the group saw, who was there, setlists, media.
+      - Event lineup and "who saw what" (M2): performances on the event page; mark sets you saw.
+      - Media gallery (M2): per event, per artist.
+      - Memories (M3): composer that links to any node; a memory list on every node page; "why is this connected".
+      - Timeline and search (M4): one timeline of everything, with filters; search across all entities.
+      - Collections (M5).
+      Add real URL routes (for example, /events/[id], /artists/[id], /places/[id], /members/[id]) before
+      the node pages, so links can be shared inside the group.
+    </detail>
+  </frontend>
+
+  <api>
+    - GET /api/health: 200 when the mode and config are valid, 503 otherwise. In supabase mode it also makes a short
+      Supabase ping (src/lib/health.ts; unit-tested, not yet run against a live project). Never probes Neo4j.
+    - Worker GET /health: checks only that the handler responds.
+    - There are no other server endpoints; data access goes from the browser to Supabase under RLS.
+    - Future: invite creation via a database function or server route, media upload URL issuance, music
+      provider lookups (server-side, to keep API keys secret), and a graph read API for members only.
+  </api>
+
+  <development>
+    - Preferred: `just` lists recipes. just setup (npm ci, create .env.local); just dev (demo mode,
+      http://localhost:3000); just dev-supabase; just check (lint, typecheck, test, build); just ci (check plus db
+      reset/test/stop); just db-start / db-stop / db-reset / db-test / db-diff; just health; just clean.
+      Hosted recipes need confirm=hosted: just db-push, graph-sync, replay-outbox, seed-invite.
+      just seed-invite-local seeds the first invite on the local stack.
+    - Without just: npm ci; cp .env.example .env.local; npm run dev → http://localhost:3000 (demo mode).
+    - Local Supabase: npx --yes supabase@2.119.0 start / db reset --local / test db / stop
+      (Docker required). Then set the mode to supabase plus the local URL and publishable key in .env.local.
+    - Graph sync: node --env-file=.env.local scripts/sync-graph.mjs (needs the service role and Neo4j settings).
+    - Work in small slices; every change keeps the demo and Supabase adapters behaviorally identical.
+    <configuration>
+      Public (browser): NEXT_PUBLIC_ARCHIVE_MODE (demo | supabase), NEXT_PUBLIC_SUPABASE_URL,
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY. Server/ops only: SUPABASE_SERVICE_ROLE_KEY,
+      NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD, NEO4J_DATABASE. GitHub: NEO4J_SYNC_ENABLED,
+      CLOUDFLARE_DEPLOY_ENABLED, SUPABASE_URL, CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID.
+      seed-invite also reads NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY, plus optional INVITE_CODE and
+      INVITE_EXPIRY_DAYS.
+      Planned (phase 4): SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET (server-only).
+      Never commit real values; .env.example holds placeholders only.
+    </configuration>
+  </development>
+
+  <testing>
+    - npm run lint, npm run typecheck, npm test (Vitest domain/demo/time/runtime/SDK tests plus
+      node:test for graph replay, seed-invite and the worker), npm run build. Last recorded run on this branch
+      (plans/STATUS.md): 114 Vitest, 26 node tests; 67 pgTAP assertions after step 1a.
+    - SQL/RLS tests: supabase/tests/archive_rls.sql, community_rls.sql (file name kept), invitations_rls.sql
+      (supabase test db).
+    - Local-stack browser e2e passed manually on 2026-11-14 (docs/VALIDATION.md).
+    - Gaps: no automated browser tests, no hosted multi-user smoke test, no accessibility review, the projector
+      has not run against a real Neo4j.
+  </testing>
+
+  <deployment>
+    Order for the first hosted release: create the Supabase project → db push the migrations → seed the first
+    invite with `just seed-invite confirm=hosted` → configure Auth site and redirect URLs and email → import the repo into
+    Vercel with env vars → add the domain in Vercel and its DNS records in Cloudflare → optional Neo4j Aura
+    with manual sync → optional worker. Smoke-test with two real accounts before inviting the group.
+    Details: docs/RUNBOOK.md.
+  </deployment>
+
+  <operations>
+    - Monitor Vercel errors, Supabase Auth failures, pending outbox count and age, sync lock age.
+    - The graph lock never expires; after a crash, confirm no runner is active, then clear it manually.
+    - A full graph rebuild requires keeping the outbox history (see RUNBOOK).
+    - Set up backups before storing real memories.
+  </operations>
+
+  <requirements name="Next steps plan">
+    Phases run in order; each one ends with its acceptance check passing. Keep each phase to small
+    pull requests. Status values: [in progress], [next], [later], [done].
+    Current position (2026-11-14): phases 0 and 1 (steps 1a-1e) are done on feature/base-tbellini-site (commit
+    b0de4bd). Phase 2 is [next] and was replanned on 2026-11-14: its code parts (2.1 seed script, 2.6 health
+    ping) are done; the provisioning runs (2.2, 2.3, 2.4, 2.5, 2.5b, 2.9 first run, 2.8) need the user's approval.
+    Step log: plans/STATUS.md.
+
+    <detail name="Phase 0 — Fix invite-only signup [done: commit 5810760, merged 2026-10-17]">
+      Delivered: repaired the invitations migration (an in-place edit to an existing migration; acceptable only because
+      the broken version could never have applied, so no hosted database ran it); RLS with no client access; member-only create_invitation RPC; atomic single-use consumption with
+      used_by; random demo codes; invite-code validation and a clear error on signup; supabase/tests/invitations_rls.sql;
+      ci.yml now targets site-code; RUNBOOK first-account seeding; docs updated for invites.
+      Verified on the branch: lint and typecheck clean, 45 Vitest plus 18 node tests, build, db reset with all four
+      migrations, 54 pgTAP assertions, and a manual local Auth check (unknown, reused, and out-of-range cases rejected).
+      Not verified: hosted Supabase Auth. Details: docs/VALIDATION.md, "Invitations hardening — October 17, 2026".
+    </detail>
+    <detail name="Phase 1 — Simplify to one shared space [done: 021331b, b358f28, 5c28c8f, 1efc757, 4420f00; 2026-11-14]">
+      Delivered: the code and database match the shared model: no community or membership, a shared Person, tags
+      pointing at Person, person claims, creator-only edits, and an automatic Person per member.
+      a. Database [done, 021331b]: migration 20261017000000_shared_space.sql; pgTAP 67/67 after db reset.
+      b. Domain and adapters [done, b358f28]: snapshot v3, composition root, AuthPort; lint, tsc, 114 Vitest, 26 node
+         tests, build pass.
+      c. Graph [done, 5c28c8f]: shared-space outbox types and projector; node tests pass; real Neo4j not exercised;
+         existing graphs need a wipe and full replay.
+      d. UI [done, 1efc757; invite input fix bb142a6]: shared People page, person picker, claim flow, new labels;
+         local-stack browser e2e passed.
+      e. Docs [done, 4420f00]: ARCHITECTURE, PROJECT_HANDOFF, RUNBOOK, ROADMAP, VALIDATION and PROJECT_MEMORY moved to
+         the shared model. Also added: the justfile (f44eeb4) and the plans/ folder (807965d).
+      Still awaiting: the user's review of the claiming decisions as built (see decisions).
+    </detail>
+    <detail name="Phase 2 — Go live with M0 [next; code-ready, not provisioned]">
+      Done in code: 2.1 first-invite seed script and RUNBOOK (70c4c90, 4420f00; not run against hosted);
+      2.6 health ping to Supabase (70c4c90; not run against a live project).
+      Decisions (2026-11-14): Supabase region us-east-2; no domain yet, so SITE_URL is the Vercel production
+      URL and a later domain is one variable change plus re-running configure-auth; production branch is main
+      (site-code is the legacy Jekyll site); feature/base-tbellini-site reaches main by pull request; push access
+      to origin is verified before the first push; Cloudflare is deferred until a domain exists.
+      No-approval work first: 2.0 spike (config push, Management API, redirect wildcard, createUser metadata,
+      Vercel env calls), 2.10 emailRedirectTo from the current origin, 2.11 CI triggers to main, 2.12 justfile.
+      Needs user approval before running: 2.2 bootstrap of Supabase and Vercel projects; 2.3/2.9 deploy.yml
+      (db push, configure-auth, seed first member, health check); 2.4 configure-auth; 2.5 seed the first
+      member from env vars; 2.5b Vercel settings; 2.8 Cloudflare DNS (deferred).
+      Then 2.7, the live smoke test with two real accounts.
+      Pending design: plans/runtime-config-and-admin.md (runtime feature flags and an admin role); the
+      "no admin role" decision is under review, not changed.
+      Remaining work: provision Supabase (prod plus a preview project), Vercel, and the domain on Cloudflare;
+      add automated browser tests (sign up with invite, create event, RSVP, My calendar);
+      add URL routes for event pages; set up backups and basic monitoring.
+      Acceptance: two real accounts complete the smoke test on the production URL; the group is invited.
+    </detail>
+    <detail name="Phase 3 — Places, festivals, and history (M1) [later]">
+      Work: Place entity and picker (replacing free-text location, with old values migrated); Festival/Series
+      and editions, plus multi-day child events; post-event "I went" attendance; Member and Place pages; event
+      edit rights decision applied.
+      Acceptance: a festival shows editions by year with who went; a place page lists its events.
+    </detail>
+    <detail name="Phase 4 — Music (M2, part 1) [later]">
+      Work: Spotify app and server-side search route (client credentials); Artist and Performance entities
+      with Spotify IDs; event lineup editor using Spotify artist search; "I saw this set"; Artist page with a
+      Spotify embed; manual setlists and track links.
+      Acceptance: build a festival lineup via Spotify search; an artist page shows every time people saw them;
+      the Spotify secret never reaches the browser.
+    </detail>
+    <detail name="Phase 5 — Media (M2, part 2) [later]">
+      Work: R2 bucket, upload URL issuance (server or worker), Media entity, galleries on event and artist pages.
+      Acceptance: a member uploads photos to an event; other members see them; uploads cannot bypass auth.
+    </detail>
+    <detail name="Phase 6 — Memories and connections (M3) [later]">
+      Work: Memory entity and composer that links to any node; memories on every node page; a members-only graph
+      read API for "connected to" and "why connected"; enable a scheduled graph sync.
+      Acceptance: write a memory linking an event, an artist, and two members; it appears on all four pages
+      with the connection explained.
+    </detail>
+    <detail name="Phase 7 — Timeline and search (M4) [later]">
+      Work: unified timeline with filters (year, member, artist, place, type); search across all entities;
+      replace whole-snapshot loading with paged, filtered queries.
+      Acceptance: find any event, artist, place, or memory by text; timeline filters combine.
+    </detail>
+    <detail name="Phase 8 — Extended archive (M5) [later]">
+      Collections and labels, astrology, historical import of past shows, approximate dates, cleanup tools, export.
+    </detail>
+  </requirements>
+
+  <decisions>
+    - Archive-first; the earlier social-network framing is superseded. No public feed.
+    - One group, one shared space. There is no community or membership entity, and no per-user private
+      records; a profile means "can log in" (2026-10-17, supersedes the 2026-10-06 community and private-people model).
+    - Invite-only registration (commit 28a2536).
+    - Only the creator edits or deletes a record (2026-10-17). RSVPs are self-only; tags never imply RSVPs.
+    - People without accounts are shared Person entities, linked to a Member when they sign up (2026-10-17).
+    - Claiming: an invite can name a Person, or the new member picks "this is me" and the Person's creator confirms.
+      Every Member automatically gets a Person (answered and implemented 2026-11-14; plans/STATUS.md lists the
+      user's review of these as pending).
+    - Privacy = signed-in only: a profile is the only gate to read anything; there is no per-user private data.
+    - Invites expire in 1–30 days, default 7, as built.
+    - Any member can create invites; there is no admin role (2026-10-17).
+    - Spotify is the music data provider (2026-10-17).
+    - Supabase is the source of truth; Neo4j is a derived, rebuildable projection.
+    - Vercel hosts the app; Cloudflare handles DNS, plus media/edge features when needed.
+    - Migrations are forward-only and immutable once applied.
+  </decisions>
+
+  <constraints>
+    - Never expose the service-role key, Neo4j credentials, or Spotify secrets to the browser or NEXT_PUBLIC_* vars.
+    - Never let graph availability block a write; the browser never queries Neo4j directly.
+    - Nothing is readable without signing in.
+    - Finish phases in order; keep Linear changes inside tbellini-m.
+  </constraints>
+
+  <focus name="Known issues (2026-11-14)">
+    - Nothing is provisioned (Supabase, Vercel, Cloudflare, Neo4j); the first-invite gap is solved in code by
+      `just seed-invite` but not yet run against a hosted project.
+    - The Neo4j projector has not run against a real Neo4j; old graphs need a wipe and full replay.
+    - Adapter-to-Postgres behaviour is covered only by pgTAP (the Supabase contract test uses an in-memory fake).
+    - The generated invite code is shown only behind a Copy button, not as text.
+    - Remaining architecture debt is listed in docs/ARCHITECTURE.md, section 9.
+  </focus>
+
+  <questions>
+    - Invites are single-use and expire in 1–30 days (default 7), as built. Is that right?
+    - Do other members' "I went" records about someone need that person's confirmation?
+    - Model festivals as a Series plus yearly editions with day/stage child events? (This is the proposed default.)
+    - What does astrology mean for this group (member birth charts, the sky at events, both)?
+    - Resolved 2026-11-14: region us-east-2; no production domain yet (SITE_URL is the Vercel production URL).
+  </questions>
+</project>
